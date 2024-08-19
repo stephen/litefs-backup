@@ -7,9 +7,16 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/amacneil/dbmate/v2/pkg/dbmate"
+	_ "github.com/amacneil/dbmate/v2/pkg/driver/sqlite"
+
 	lfsb "github.com/stephen/litefs-backup"
+	"github.com/stephen/litefs-backup/db/migrations"
 	"github.com/stephen/litefs-backup/db/sqliteutil"
 	"github.com/superfly/ltx"
 )
@@ -56,18 +63,45 @@ type WriteTxPage struct {
 	Data []byte
 }
 
-func NewStore() *Store {
+func NewStore(path string) *Store {
 	return &Store{
+		path:                path,
 		WriteTxBatchSize:    DefaultWriteTxBatchSize,
 		WriteTxBatchTimeout: DefaultWriteTxBatchTimeout,
 	}
 }
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 
 	WriteTxBatchSize    int64
 	WriteTxBatchTimeout time.Duration
+}
+
+func (s *Store) Open() error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+
+	path := filepath.Join(filepath.Dir(s.path), "server.db")
+
+	db, err := sql.Open("lfsb-sqlite", path)
+	if err != nil {
+		return err
+	}
+	s.db = db
+	u, _ := url.Parse(fmt.Sprintf("sqlite:%s", path))
+	dbm := dbmate.New(u)
+	dbm.FS = migrations.FS
+	dbm.AutoDumpSchema = false
+	dbm.MigrationsDir = []string{"."}
+
+	if err := dbm.CreateAndMigrate(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // WriteTx appends an LTX file to a database.

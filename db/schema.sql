@@ -1,13 +1,12 @@
 CREATE TABLE IF NOT EXISTS "schema_migrations" (version varchar(255) primary key);
+CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE databases (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	org_id INTEGER NOT NULL,
 	cluster TEXT NOT NULL,
 	name TEXT NOT NULL,
 	hwm INTEGER NOT NULL DEFAULT 0,
-	UNIQUE (org_id, cluster, name)
+	UNIQUE (cluster, name)
 ) STRICT;
-CREATE TABLE sqlite_sequence(name,seq);
 CREATE TABLE txns (
 	db_id INTEGER NOT NULL,
 	min_txid INTEGER NOT NULL,
@@ -17,6 +16,11 @@ CREATE TABLE txns (
 	timestamp TEXT NOT NULL,
 	pre_apply_checksum BLOB,
 	post_apply_checksum BLOB NOT NULL,
+
+	write_key INTEGER NOT NULL DEFAULT 0,
+	write_index INTEGER NOT NULL DEFAULT 0,
+	write_expires_at TEXT,
+	pending INTEGER GENERATED ALWAYS AS (write_key != 0),
 
 	PRIMARY KEY (db_id, min_txid, max_txid),
 	CONSTRAINT fk_txns_db_id FOREIGN KEY (db_id) REFERENCES databases (id) ON DELETE CASCADE
@@ -33,6 +37,13 @@ CREATE TABLE pages (
 
 	PRIMARY KEY (db_id, pgno, max_txid, min_txid)
 	CONSTRAINT fk_pages_db_id FOREIGN KEY (db_id) REFERENCES databases (id) ON DELETE CASCADE
+) STRICT;
+CREATE TABLE compaction_requests (
+	db_id INTEGER NOT NULL,
+	level INTEGER NOT NULL,
+	idempotency_key INTEGER NOT NULL,
+	PRIMARY KEY (db_id, level),
+	CONSTRAINT fk_compaction_requests_db_id FOREIGN KEY (db_id) REFERENCES databases (id) ON DELETE CASCADE
 ) STRICT;
 -- Dbmate schema migrations
 INSERT INTO "schema_migrations" (version) VALUES

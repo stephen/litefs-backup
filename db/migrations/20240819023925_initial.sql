@@ -1,11 +1,10 @@
 -- migrate:up
 CREATE TABLE databases (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	org_id INTEGER NOT NULL,
 	cluster TEXT NOT NULL,
 	name TEXT NOT NULL,
 	hwm INTEGER NOT NULL DEFAULT 0,
-	UNIQUE (org_id, cluster, name)
+	UNIQUE (cluster, name)
 ) STRICT;
 
 CREATE TABLE txns (
@@ -17,6 +16,11 @@ CREATE TABLE txns (
 	timestamp TEXT NOT NULL,
 	pre_apply_checksum BLOB,
 	post_apply_checksum BLOB NOT NULL,
+
+	write_key INTEGER NOT NULL DEFAULT 0,
+	write_index INTEGER NOT NULL DEFAULT 0,
+	write_expires_at TEXT,
+	pending INTEGER GENERATED ALWAYS AS (write_key != 0),
 
 	PRIMARY KEY (db_id, min_txid, max_txid),
 	CONSTRAINT fk_txns_db_id FOREIGN KEY (db_id) REFERENCES databases (id) ON DELETE CASCADE

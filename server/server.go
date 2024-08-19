@@ -10,7 +10,7 @@ import (
 )
 
 func Run(ctx context.Context) error {
-	store := store.NewStore()
+	store := store.NewStore("XXX")
 	return NewServer(store).Open()
 }
 
