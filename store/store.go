@@ -402,10 +402,9 @@ func (s *Store) applyWriteTx(ctx context.Context, tx *sql.Tx, req *WriteTxReques
 
 // FindDBByName returns a database entry by org/cluster/name.
 func (s *Store) FindDBByName(ctx context.Context, cluster, name string) (*DB, error) {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	return findDBByName(ctx, tx, cluster, name)
+	return findDBByName(ctx, s.db, cluster, name)
+}
+
+func (s *Store) FindDBsByCluster(ctx context.Context, cluster string) ([]*DB, error) {
+	return findDBsByCluster(ctx, s.db, cluster)
 }

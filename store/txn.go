@@ -48,9 +48,9 @@ func (txn *Txn) PostApplyPos() ltx.Pos {
 	}
 }
 
-func findTxnByMaxTXID(ctx context.Context, tx *sql.Tx, dbID int, maxTXID ltx.TXID) (*Txn, error) {
+func findTxnByMaxTXID(ctx context.Context, tx DBTX, dbID int, maxTXID ltx.TXID) (*Txn, error) {
 	var minTXID ltx.TXID
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid
 		FROM txns
 		WHERE pending = FALSE AND db_id = ? AND max_txid = ?
@@ -66,9 +66,9 @@ func findTxnByMaxTXID(ctx context.Context, tx *sql.Tx, dbID int, maxTXID ltx.TXI
 	return findTxnByTXIDRange(ctx, tx, dbID, minTXID, maxTXID)
 }
 
-func findTxnByMinTXID(ctx context.Context, tx *sql.Tx, dbID int, minTXID ltx.TXID) (*Txn, error) {
+func findTxnByMinTXID(ctx context.Context, tx DBTX, dbID int, minTXID ltx.TXID) (*Txn, error) {
 	var maxTXID ltx.TXID
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		SELECT max_txid
 		FROM txns
 		WHERE pending = FALSE AND db_id = ? AND min_txid = ?
@@ -84,9 +84,9 @@ func findTxnByMinTXID(ctx context.Context, tx *sql.Tx, dbID int, minTXID ltx.TXI
 	return findTxnByTXIDRange(ctx, tx, dbID, minTXID, maxTXID)
 }
 
-func findPendingTxnByMinTXID(ctx context.Context, tx *sql.Tx, dbID int, minTXID ltx.TXID) (*Txn, error) {
+func findPendingTxnByMinTXID(ctx context.Context, tx DBTX, dbID int, minTXID ltx.TXID) (*Txn, error) {
 	var maxTXID ltx.TXID
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		SELECT max_txid
 		FROM txns
 		WHERE pending = TRUE AND db_id = ? AND min_txid = ?
@@ -102,11 +102,11 @@ func findPendingTxnByMinTXID(ctx context.Context, tx *sql.Tx, dbID int, minTXID 
 	return findTxnByTXIDRange(ctx, tx, dbID, minTXID, maxTXID)
 }
 
-func findTxnByTXIDRange(ctx context.Context, tx *sql.Tx, dbID int, minTXID, maxTXID ltx.TXID) (*Txn, error) {
+func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID ltx.TXID) (*Txn, error) {
 	txn := Txn{DBID: dbID}
 
 	var writeExpiresAt sqliteutil.NullTime
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid,
 		       max_txid,
 		       page_size,
@@ -144,7 +144,7 @@ func findTxnByTXIDRange(ctx context.Context, tx *sql.Tx, dbID int, minTXID, maxT
 	return &txn, nil
 }
 
-func createTxn(ctx context.Context, tx *sql.Tx, txn *Txn) error {
+func createTxn(ctx context.Context, tx DBTX, txn *Txn) error {
 	// Ensure there are no txns that overlap with the TXID range.
 	// This shouldn't happen but we should double check.
 	var overlappingN int
@@ -196,7 +196,7 @@ func createTxn(ctx context.Context, tx *sql.Tx, txn *Txn) error {
 	return nil
 }
 
-func deletePendingTxnAndPages(ctx context.Context, tx *sql.Tx, dbID int, minTXID, maxTXID ltx.TXID) error {
+func deletePendingTxnAndPages(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID ltx.TXID) error {
 	if result, err := tx.ExecContext(ctx, `
 		DELETE FROM txns
 		WHERE db_id = ? AND min_txid = ? AND max_txid = ?

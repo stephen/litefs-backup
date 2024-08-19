@@ -12,6 +12,13 @@ import (
 	"github.com/superfly/ltx"
 )
 
+type DBTX interface {
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+	PrepareContext(context.Context, string) (*sql.Stmt, error)
+	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
+}
+
 // DB represents a database row in the shard.
 type DB struct {
 	ID                int
@@ -32,7 +39,7 @@ func (db *DB) Pos() ltx.Pos {
 	}
 }
 
-func findDB(ctx context.Context, tx *sql.Tx, id int) (*DB, error) {
+func findDB(ctx context.Context, tx DBTX, id int) (*DB, error) {
 	var db DB
 	if err := tx.QueryRowContext(ctx, `
 		SELECT d.id, d.cluster, d.name, d.hwm, IFNULL(t.max_txid,0), t.post_apply_checksum, IFNULL(t.page_size,0), IFNULL(t."commit",0), t.timestamp
@@ -61,7 +68,7 @@ func findDB(ctx context.Context, tx *sql.Tx, id int) (*DB, error) {
 	return &db, nil
 }
 
-func findDBByName(ctx context.Context, tx *sql.Tx, cluster, name string) (*DB, error) {
+func findDBByName(ctx context.Context, tx DBTX, cluster, name string) (*DB, error) {
 	var id int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT id
@@ -79,7 +86,7 @@ func findDBByName(ctx context.Context, tx *sql.Tx, cluster, name string) (*DB, e
 	return findDB(ctx, tx, id)
 }
 
-func createDBIfNotExist(ctx context.Context, tx *sql.Tx, db *DB) error {
+func createDBIfNotExist(ctx context.Context, tx DBTX, db *DB) error {
 	other, err := findDBByName(ctx, tx, db.Cluster, db.Name)
 	if err == lfsb.ErrDatabaseNotFound {
 		return createDB(ctx, tx, db)
@@ -90,7 +97,7 @@ func createDBIfNotExist(ctx context.Context, tx *sql.Tx, db *DB) error {
 	return nil
 }
 
-func createDB(ctx context.Context, tx *sql.Tx, db *DB) error {
+func createDB(ctx context.Context, tx DBTX, db *DB) error {
 	return tx.QueryRowContext(ctx, `
 		INSERT INTO databases (cluster, name)
 		VALUES (?, ?)
@@ -103,13 +110,13 @@ func createDB(ctx context.Context, tx *sql.Tx, db *DB) error {
 	)
 }
 
-func deleteDB(ctx context.Context, tx *sql.Tx, id int) error {
+func deleteDB(ctx context.Context, tx DBTX, id int) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM databases WHERE id = ?`, id)
 	return err
 }
 
 // increaseHWM updates the high-water mark if the new value is higher.
-func increaseHWM(ctx context.Context, tx *sql.Tx, dbID int, hwm ltx.TXID) error {
+func increaseHWM(ctx context.Context, tx DBTX, dbID int, hwm ltx.TXID) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE databases
 		SET hwm = ?
@@ -121,7 +128,7 @@ func increaseHWM(ctx context.Context, tx *sql.Tx, dbID int, hwm ltx.TXID) error 
 	return err
 }
 
-func findDBsByCluster(ctx context.Context, tx *sql.Tx, cluster string) ([]*DB, error) {
+func findDBsByCluster(ctx context.Context, tx DBTX, cluster string) ([]*DB, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id
 		FROM databases
@@ -156,7 +163,7 @@ func findDBsByCluster(ctx context.Context, tx *sql.Tx, cluster string) ([]*DB, e
 	return a, rows.Close()
 }
 
-func writeSnapshotTo(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID, w io.Writer) error {
+func writeSnapshotTo(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID, w io.Writer) error {
 	enc := ltx.NewEncoder(w)
 
 	txn, err := findTxnByMaxTXID(ctx, tx, dbID, txID)

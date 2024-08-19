@@ -26,13 +26,13 @@ type Page struct {
 
 // findPageAtTXID returns the page state at a given transaction ID.
 // It is the responsibility of the caller to verify that the txn exists, if needed.
-func findPageAtTXID(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID, pgno uint32) (*Page, error) {
+func findPageAtTXID(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID, pgno uint32) (*Page, error) {
 	page := Page{
 		DBID: dbID,
 		Pgno: pgno,
 	}
 
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid, max_txid, chksum, data
 		FROM pages
 		WHERE db_id = ? AND min_txid <= ? AND pgno = ?
@@ -55,8 +55,8 @@ func findPageAtTXID(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID, pg
 
 // findPagesChangedSinceTXID returns a list of numbers of the pages that have changed since txn.
 // It is the responsibility of the caller to verify that the txn exists, if needed.
-func findPagesChangedSinceTXID(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID) ([]uint32, error) {
-	rows, err := tx.Query(`
+func findPagesChangedSinceTXID(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID) ([]uint32, error) {
+	rows, err := tx.QueryContext(ctx, `
 		SELECT DISTINCT pgno
 		FROM pages
 		WHERE db_id = ? AND max_txid > ?
@@ -83,7 +83,7 @@ func findPagesChangedSinceTXID(ctx context.Context, tx *sql.Tx, dbID int, txID l
 	return pgnos, rows.Close()
 }
 
-func writeLTXPageRangeTo(ctx context.Context, tx *sql.Tx, db *DB, minTXID, maxTXID ltx.TXID, w io.Writer) (ltx.Header, ltx.Trailer, error) {
+func writeLTXPageRangeTo(ctx context.Context, tx DBTX, db *DB, minTXID, maxTXID ltx.TXID, w io.Writer) (ltx.Header, ltx.Trailer, error) {
 	minTxn, err := findTxnByMinTXID(ctx, tx, db.ID, minTXID)
 	if err != nil {
 		return ltx.Header{}, ltx.Trailer{}, fmt.Errorf("fetch min txn @ %s: %w", minTXID, err)
@@ -155,7 +155,7 @@ func writeLTXPageRangeTo(ctx context.Context, tx *sql.Tx, db *DB, minTXID, maxTX
 	return enc.Header(), enc.Trailer(), nil
 }
 
-func encodeSnapshotPagesTo(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID, enc *ltx.Encoder) (ltx.Checksum, error) {
+func encodeSnapshotPagesTo(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID, enc *ltx.Encoder) (ltx.Checksum, error) {
 	stmt, err := tx.PrepareContext(ctx, `
 		SELECT chksum, data
 		FROM pages
@@ -197,7 +197,7 @@ func encodeSnapshotPagesTo(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.T
 
 // compactPagesBefore removes any duplicate pages before the given TXID by only
 // retaining the latest version.
-func compactPagesBefore(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID) error {
+func compactPagesBefore(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID) error {
 	// We want to compact away any pages at the given TXID or earlier so we
 	// actually want to query for the next highest minimum TXID.
 	rows, err := tx.QueryContext(ctx, `
@@ -241,7 +241,7 @@ func compactPagesBefore(ctx context.Context, tx *sql.Tx, dbID int, txID ltx.TXID
 	return rows.Close()
 }
 
-func insertPages(ctx context.Context, tx *sql.Tx, db *DB, txn *Txn, req *WriteTxRequest) (ltx.Checksum, error) {
+func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxRequest) (ltx.Checksum, error) {
 	prevPageStmt, err := tx.PrepareContext(ctx, `
 		SELECT data
 		FROM pages
