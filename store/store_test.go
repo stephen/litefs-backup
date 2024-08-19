@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stephen/litefs-backup/internal/testingutil"
+	"github.com/stephen/litefs-backup/store"
 	"github.com/superfly/ltx"
 	"golang.org/x/sync/errgroup"
 )
@@ -394,6 +396,90 @@ func TestStore_WriteTx(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
 		if _, err := s.WriteTx(context.Background(), "bkt", "db", strings.NewReader(strings.Repeat("X", 100)), nil); err == nil || err.Error() != `decode header: unmarshal header: invalid LTX file` {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestStore_FindDBsByCluster(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write to first database.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db0", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db0", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xc6e57aa102377eee},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write to second database.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db1", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 5},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write to a different cluster.
+		if _, err := s.WriteTx(context.Background(), "other", "db3", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 5},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		dbs, err := s.FindDBsByCluster(context.Background(), "bkt")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := len(dbs), 2; got != want {
+			t.Fatalf("n=%d, want %d", got, want)
+		}
+
+		if got, want := dbs[0], (&store.DB{
+			ID:                1,
+			Cluster:           "bkt",
+			Name:              "db0",
+			HWM:               0,
+			TXID:              2,
+			PostApplyChecksum: 0xc6e57aa102377eee,
+			PageSize:          512,
+			Commit:            1,
+			Timestamp:         time.Unix(0, 0).UTC(),
+		}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("db[0]=%#v, want %#v", got, want)
+		}
+
+		if got, want := dbs[1], (&store.DB{
+			ID:                2,
+			Cluster:           "bkt",
+			Name:              "db1",
+			HWM:               0,
+			TXID:              5,
+			PostApplyChecksum: 0xeb1a999231044ddd,
+			PageSize:          0x200,
+			Commit:            0x1,
+			Timestamp:         time.Unix(0, 0).UTC(),
+		}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("db[1]=%#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("Empty", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		if dbs, err := s.FindDBsByCluster(context.Background(), "bkt"); err != nil {
+			t.Fatal(err)
+		} else if got, want := len(dbs), 0; got != want {
+			t.Fatalf("n=%d, want %d", got, want)
 		}
 	})
 }

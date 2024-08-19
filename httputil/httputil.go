@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 )
@@ -14,4 +15,16 @@ func APIHandler(fn func(ctx context.Context, w http.ResponseWriter, r *http.Requ
 			log.Println(err)
 		}
 	})
+}
+
+// RenderResponse renders API response as JSON.
+func RenderResponse(w http.ResponseWriter, resp any) error {
+	w.Header().Set("Content-Type", "application/json")
+	if buf, err := json.MarshalIndent(resp, "", "  "); err != nil {
+		return err
+	} else if _, err := w.Write(buf); err != nil {
+		return err
+	}
+
+	return nil
 }

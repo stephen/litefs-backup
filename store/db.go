@@ -132,7 +132,7 @@ func findDBsByCluster(ctx context.Context, tx DBTX, cluster string) ([]*DB, erro
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id
 		FROM databases
-		WHERE AND cluster = ?
+		WHERE cluster = ?
 		ORDER BY name
 	`,
 		cluster,

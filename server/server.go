@@ -38,7 +38,7 @@ func (s *Server) Open() error {
 	})
 
 	// r.Get("/hwm", httputil.APIHandler(s.handleGetHWM))
-	// r.Get("/pos", httputil.APIHandler(s.handleGetPos))
+	r.Get("/pos", httputil.APIHandler(s.handleGetPos))
 	// r.Get("/info", httputil.APIHandler(s.handleGetInfo))
 	// r.Post("/sync", httputil.APIHandler(s.handlePostSync))
 
