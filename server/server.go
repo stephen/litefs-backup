@@ -28,7 +28,7 @@ func (s *Server) Open() error {
 	r := chi.NewRouter()
 
 	r.Route("/db", func(r chi.Router) {
-		// r.Get("/snapshot", httputil.APIHandler(s.handleGetDBSnapshot))
+		r.Get("/snapshot", httputil.APIHandler(s.handleGetDBSnapshot))
 		// r.Get("/info", httputil.APIHandler(s.handleGetDBInfo))
 		// r.Get("/page", httputil.APIHandler(s.handleGetDBPage))
 		// r.Get("/sync", httputil.APIHandler(s.handleGetDBSync))

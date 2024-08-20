@@ -85,8 +85,8 @@ var (
 	// ErrOrgIDRequired = Errorf(ErrorTypeValidation, "EBADORG", "org id required")
 	// ErrOrgIDInvalid  = Errorf(ErrorTypeValidation, "EBADORG", "org id invalid")
 
-	// ErrClusterRequired = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster required")
-	// ErrClusterInvalid  = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster invalid")
+	ErrClusterRequired = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster required")
+	ErrClusterInvalid  = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster invalid")
 	// ErrClusterExists   = Errorf(ErrorTypeConflict, "ECLUSTEREXIST", "cluster already exists")
 	// ErrClusterDeleted  = Errorf(ErrorTypeUnprocessable, "ECLUSTERDELETED", "cluster deleted")
 
@@ -102,8 +102,8 @@ var (
 	// ErrBucketNotFound = Errorf(ErrorTypeNotFound, "ENOBUCKET", "bucket not found")
 	// ErrRegionNotFound = Errorf(ErrorTypeNotFound, "ENOREGION", "region not found")
 
-	// ErrMinTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "minimum transaction id required")
-	// ErrMaxTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "maximum transaction id required")
+	ErrMinTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "minimum transaction id required")
+	ErrMaxTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "maximum transaction id required")
 	// ErrInvalidPos      = Errorf(ErrorTypeValidation, "EBADPOS", "DB position is invalid")
 
 	// ErrCannotCompactToLevelZero = Errorf(ErrorTypeValidation, "EBADLEVEL", "cannot compact to level zero")

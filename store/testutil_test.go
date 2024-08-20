@@ -3,6 +3,7 @@ package store_test
 import (
 	"bytes"
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/stephen/litefs-backup/store"
@@ -47,4 +48,11 @@ func ltxSpecBytes(tb testing.TB, spec *ltx.FileSpec) []byte {
 func ltxSpecReader(tb testing.TB, spec *ltx.FileSpec) io.Reader {
 	tb.Helper()
 	return bytes.NewReader(ltxSpecBytes(tb, spec))
+}
+
+func compareFileSpec(tb testing.TB, got, want *ltx.FileSpec) {
+	tb.Helper()
+	if !reflect.DeepEqual(got, want) {
+		tb.Fatalf("spec mismatch:\ngot:  %#v\nwant: %#v", got, want)
+	}
 }

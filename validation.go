@@ -1,10 +1,27 @@
 package lfsb
 
-import "strings"
+import (
+	"fmt"
+	"strings"
 
+	"github.com/superfly/ltx"
+)
+
+// Maximum identifier lengths.
 const (
+	MaxClusterLen  = 32
 	MaxDatabaseLen = 256
 )
+
+// ValidateClusterName returns nil if s is a valid cluster.
+func ValidateClusterName(s string) error {
+	if s == "" {
+		return ErrClusterRequired
+	} else if len(s) > MaxClusterLen || !isWord(s) {
+		return ErrClusterInvalid
+	}
+	return nil
+}
 
 // ValidateDatabase returns nil if s is a valid database name.
 func ValidateDatabase(s string) error {
@@ -36,4 +53,9 @@ func isWordCh(ch rune) bool {
 		(ch >= 'a' && ch <= 'z') ||
 		(ch >= 'A' && ch <= 'Z') ||
 		ch == '_' || ch == '-' || ch == '.'
+}
+
+// FormatLTXFilename returns a filename based on the min & max TXID.
+func FormatLTXFilename(min, max ltx.TXID) string {
+	return fmt.Sprintf("%s-%s.ltx", min.String(), max.String())
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -480,6 +481,360 @@ func TestStore_FindDBsByCluster(t *testing.T) {
 			t.Fatal(err)
 		} else if got, want := len(dbs), 0; got != want {
 			t.Fatalf("n=%d, want %d", got, want)
+		}
+	})
+}
+
+func TestStore_WriteSnapshotTo(t *testing.T) {
+	t.Run("Local", func(t *testing.T) {
+		s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+
+		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if db, err := s.FindDBByName(context.Background(), "cl", "db"); err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 5, PostApplyChecksum: 0x80d21cd000000000}); got != want {
+			t.Fatalf("pos=%s, want %s", got, want)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 6, MaxTXID: 6, PreApplyChecksum: 0x80d21cd000000000},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("6"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if db, err := s.FindDBByName(context.Background(), "cl", "db"); err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 6, PostApplyChecksum: 0xad2dffe333333333}); got != want {
+			t.Fatalf("pos=%s, want %s", got, want)
+		}
+
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 6, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		var spec ltx.FileSpec
+		if _, err := spec.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+			t.Fatal(err)
+		}
+		compareFileSpec(t, &spec, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 6},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("6"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xbb0e2065ff682755},
+		})
+
+		if err := ltx.NewDecoder(&buf).Verify(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("Local/ZeroCommit", func(t *testing.T) {
+		s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+
+		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 0, MinTXID: 6, MaxTXID: 6, PreApplyChecksum: 0x80d21cd000000000},
+			Trailer: ltx.Trailer{PostApplyChecksum: ltx.ChecksumFlag},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 6, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		var spec ltx.FileSpec
+		if _, err := spec.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+			t.Fatal(err)
+		}
+		compareFileSpec(t, &spec, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 0, MinTXID: 1, MaxTXID: 6},
+			Trailer: ltx.Trailer{PostApplyChecksum: ltx.ChecksumFlag, FileChecksum: 0x8553be86dc216640},
+		})
+
+		if err := ltx.NewDecoder(&buf).Verify(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("Remote", func(t *testing.T) {
+		t.Skip()
+		// s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+		// s.Levels[0].Retention = 1 * time.Millisecond
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+		// 	Pages: []ltx.PageSpec{
+		// 		{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 		{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 	},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 6, MaxTXID: 6, PreApplyChecksum: 0x80d21cd000000000},
+		// 	Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("6"), 512)}},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // Wait for retention & compact.
+		// time.Sleep(s.Levels[0].Retention)
+		// if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 7, MaxTXID: 7, PreApplyChecksum: 0xad2dffe333333333},
+		// 	Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("7"), 512)}},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0xb0e55ff457622bbb},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // Wait for retention & compact.
+		// time.Sleep(s.Levels[0].Retention)
+		// if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // The snapshot should be pulled from remote storage since TXID 6 was compacted away to L1.
+		// var buf bytes.Buffer
+		// if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 6, &buf); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// var spec ltx.FileSpec
+		// if _, err := spec.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+		// 	t.Fatal(err)
+		// }
+		// compareFileSpec(t, &spec, &ltx.FileSpec{
+		// 	Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 6},
+		// 	Pages: []ltx.PageSpec{
+		// 		{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 		{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("6"), 512)},
+		// 	},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xbb0e2065ff682755},
+		// })
+
+		// if err := ltx.NewDecoder(&buf).Verify(); err != nil {
+		// 	t.Fatal(err)
+		// }
+	})
+
+	t.Run("Remote/ZeroCommit", func(t *testing.T) {
+		t.Skip()
+		// s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+		// s.Levels[0].Retention = 1 * time.Millisecond
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+		// 	Pages: []ltx.PageSpec{
+		// 		{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 		{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 	},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 0, MinTXID: 6, MaxTXID: 6, PreApplyChecksum: 0x80d21cd000000000},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: ltx.ChecksumFlag},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // Wait for retention & compact.
+		// time.Sleep(s.Levels[0].Retention)
+		// if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 7, MaxTXID: 7, PreApplyChecksum: ltx.ChecksumFlag},
+		// 	Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("7"), 512)}},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0xb0e55ff457622bbb},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // Wait for retention & compact.
+		// time.Sleep(s.Levels[0].Retention)
+		// if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // The snapshot should be pulled from remote storage since TXID 6 was compacted away to L1.
+		// var buf bytes.Buffer
+		// if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 6, &buf); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// var spec ltx.FileSpec
+		// if _, err := spec.ReadFrom(bytes.NewReader(buf.Bytes())); err != nil {
+		// 	t.Fatal(err)
+		// }
+		// compareFileSpec(t, &spec, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 0, MinTXID: 1, MaxTXID: 6},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: ltx.ChecksumFlag, FileChecksum: 0x8553be86dc216640},
+		// })
+
+		// if err := ltx.NewDecoder(&buf).Verify(); err != nil {
+		// 	t.Fatal(err)
+		// }
+	})
+
+	// Ensure that requesting a snapshot ahead of the TXID returns an error.
+	t.Run("ErrTXIDAhead", func(t *testing.T) {
+		t.Skip()
+		// s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+		// 	Pages: []ltx.PageSpec{
+		// 		{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 		{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 	},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// var buf bytes.Buffer
+		// if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 6, &buf); err != lfsb.ErrTxNotAvailable {
+		// 	t.Fatalf("unexpected error: %s", err)
+		// }
+	})
+
+	// Ensure that requesting a snapshot within a TXID range returns an error.
+	t.Run("ErrTxNotAvailable", func(t *testing.T) {
+		t.Skip()
+		// s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
+		// s.Levels[0].Retention = 1 * time.Millisecond
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 5},
+		// 	Pages: []ltx.PageSpec{
+		// 		{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 		{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("5"), 512)},
+		// 	},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0x80d21cd000000000},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
+		// 	Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 6, MaxTXID: 6, PreApplyChecksum: 0x80d21cd000000000},
+		// 	Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("6"), 512)}},
+		// 	Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		// }), nil); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // Wait for retention & compact.
+		// time.Sleep(s.Levels[0].Retention)
+		// if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		// 	t.Fatal(err)
+		// }
+
+		// // The compacted file in remote storage has a range of [1-6] so 5 is not found.
+		// var buf bytes.Buffer
+		// if err := s.WriteSnapshotTo(context.Background(), "cl", "db", 5, &buf); err != lfsc.ErrTxNotAvailable {
+		// 	t.Fatalf("unexpected error: %s", err)
+		// }
+	})
+}
+
+func TestStore_WriteDatabaseTo(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write a transaction.
+		spec1 := &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, spec1), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write another transaction.
+		spec2 := &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, spec2), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Read it back as a DB dump.
+		var buf bytes.Buffer
+		if err := s.WriteDatabaseTo(context.Background(), "bkt", "db", 2, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := buf.Bytes(), append(bytes.Repeat([]byte("1"), 512), bytes.Repeat([]byte("2"), 512)...); !bytes.Equal(got, want) {
+			t.Fatalf("data mismatch:\ngot:  %#v\nwant: %#v", got, want)
+		}
+	})
+
+	t.Run("ZeroCommit", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 0, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Trailer: ltx.Trailer{PostApplyChecksum: ltx.ChecksumFlag},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Read it back as a DB dump.
+		var buf bytes.Buffer
+		if err := s.WriteDatabaseTo(context.Background(), "bkt", "db", 2, &buf); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := buf.Len(), 0; got != want {
+			t.Fatalf("len=%d, want %d", got, want)
 		}
 	})
 }

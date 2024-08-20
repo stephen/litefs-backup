@@ -48,3 +48,30 @@ func (s *Server) handleGetPos(ctx context.Context, w http.ResponseWriter, r *htt
 
 	return httputil.RenderResponse(w, m)
 }
+
+func (s *Server) handleGetDBSnapshot(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
+	q := r.URL.Query()
+	cluster := "XXX"
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+
+	// Determine the current replication position of the database.
+	db, err := s.store.FindDBByName(r.Context(), cluster, name)
+	if err != nil {
+		return err
+	}
+
+	// Generate a snapshot up to the TXID of the read position.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	switch q.Get("format") {
+	case "", "ltx":
+		return s.store.WriteSnapshotTo(ctx, cluster, name, db.TXID, w)
+	case "sqlite":
+		return s.store.WriteDatabaseTo(ctx, cluster, name, db.TXID, w)
+	default:
+		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADFORMAT", "unsupported snapshot format")
+	}
+}

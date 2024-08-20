@@ -68,19 +68,32 @@ func NewStore(path string) *Store {
 		path:                path,
 		WriteTxBatchSize:    DefaultWriteTxBatchSize,
 		WriteTxBatchTimeout: DefaultWriteTxBatchTimeout,
+		Levels:              []*CompactionLevel{{Level: 0}},
 	}
 }
 
 type Store struct {
-	db   *sql.DB
+	db *sql.DB
+
+	// path is the directory where we store our data.
 	path string
 
 	WriteTxBatchSize    int64
 	WriteTxBatchTimeout time.Duration
+
+	Levels CompactionLevels
 }
 
 func (s *Store) Open() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+
+	// Drop & recreate our "tmp" directory on the mount.
+	// We use space on the mount so we don't get our IO throttled.
+	if err := os.RemoveAll(s.TempDir()); err != nil {
+		return err
+	} else if err := os.MkdirAll(s.TempDir(), 0o777); err != nil {
 		return err
 	}
 
@@ -96,12 +109,20 @@ func (s *Store) Open() error {
 	dbm.FS = migrations.FS
 	dbm.AutoDumpSchema = false
 	dbm.MigrationsDir = []string{"."}
+	dbm.Log = io.Discard
 
 	if err := dbm.CreateAndMigrate(); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// TempDir returns a "tmp" directory under the data directory for temporary files.
+func (s *Store) TempDir() string { return filepath.Join(s.path, "tmp") }
+
+func (s *Store) createTemp(pattern string) (*os.File, error) {
+	return os.CreateTemp(s.TempDir(), pattern)
 }
 
 // WriteTx appends an LTX file to a database.
