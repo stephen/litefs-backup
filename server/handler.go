@@ -126,3 +126,24 @@ func (s *Server) handlePostRestore(ctx context.Context, w http.ResponseWriter, r
 type postRestoreResponse struct {
 	TXID ltx.TXID `json:"txID"`
 }
+
+func (s *Server) handlePostUpload(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	cluster := "XXX"
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+
+	pos, err := s.store.StoreDatabase(ctx, cluster, name, r.Body)
+	if err != nil {
+		return err
+	}
+
+	return httputil.RenderResponse(w, postUploadResponse{TXID: pos.TXID})
+}
+
+type postUploadResponse struct {
+	TXID ltx.TXID `json:"txID"`
+}
