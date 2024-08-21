@@ -77,13 +77,10 @@ const (
 )
 
 var (
-	// ErrInvalidLTXFilename = Errorf(ErrorTypeValidation, "EBADPATH", "invalid ltx filename")
+	ErrInvalidLTXFilename = Errorf(ErrorTypeValidation, "EBADPATH", "invalid ltx filename")
 	// ErrStoragePathInvalid = Errorf(ErrorTypeValidation, "EBADPATH", "invalid storage path")
 
 	// ErrRegionRequired = Errorf(ErrorTypeValidation, "EBADREGION", "region required")
-
-	// ErrOrgIDRequired = Errorf(ErrorTypeValidation, "EBADORG", "org id required")
-	// ErrOrgIDInvalid  = Errorf(ErrorTypeValidation, "EBADORG", "org id invalid")
 
 	ErrClusterRequired = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster required")
 	ErrClusterInvalid  = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster invalid")
@@ -106,8 +103,8 @@ var (
 	ErrMaxTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "maximum transaction id required")
 	// ErrInvalidPos      = Errorf(ErrorTypeValidation, "EBADPOS", "DB position is invalid")
 
-	// ErrCannotCompactToLevelZero = Errorf(ErrorTypeValidation, "EBADLEVEL", "cannot compact to level zero")
-	// ErrCompactionLevelTooHigh   = Errorf(ErrorTypeValidation, "EBADLEVEL", "compaction level too high")
+	ErrCannotCompactToLevelZero = Errorf(ErrorTypeValidation, "EBADLEVEL", "cannot compact to level zero")
+	ErrCompactionLevelTooHigh   = Errorf(ErrorTypeValidation, "EBADLEVEL", "compaction level too high")
 
 	ErrTxNotAvailable = Errorf(ErrorTypeNotFound, "ENOTXID", "tx not available")
 	// ErrTxExists        = Errorf(ErrorTypeConflict, "ETXEXISTS", "tx already exists")

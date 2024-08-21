@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 )
 
 // CompactionRequest represents a request for a database to be compacted at
@@ -10,20 +9,19 @@ import (
 // avoid the race condition where a new compaction request occurs while the
 // request is being processed.
 type CompactionRequest struct {
-	OrgID          int
 	Cluster        string
 	Database       string
 	Level          int
 	IdempotencyKey int
 }
 
-func findCompactionRequestsByLevel(ctx context.Context, tx *sql.Tx, level int) ([]*CompactionRequest, error) {
+func findCompactionRequestsByLevel(ctx context.Context, tx DBTX, level int) ([]*CompactionRequest, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT d.org_id, d.cluster, d.name, level, idempotency_key
+		SELECT d.cluster, d.name, level, idempotency_key
 		FROM compaction_requests cr
 		INNER JOIN databases d ON cr.db_id = d.id
 		WHERE level = ?
-		ORDER BY d.org_id, d.cluster, d.name
+		ORDER BY d.cluster, d.name
 	`,
 		level,
 	)
@@ -35,7 +33,7 @@ func findCompactionRequestsByLevel(ctx context.Context, tx *sql.Tx, level int) (
 	var a []*CompactionRequest
 	for rows.Next() {
 		var req CompactionRequest
-		if err := rows.Scan(&req.OrgID, &req.Cluster, &req.Database, &req.Level, &req.IdempotencyKey); err != nil {
+		if err := rows.Scan(&req.Cluster, &req.Database, &req.Level, &req.IdempotencyKey); err != nil {
 			return nil, err
 		}
 		a = append(a, &req)
@@ -47,7 +45,7 @@ func findCompactionRequestsByLevel(ctx context.Context, tx *sql.Tx, level int) (
 	return a, rows.Close()
 }
 
-func requestCompaction(ctx context.Context, tx *sql.Tx, dbID int, level, idempotencyKey int) error {
+func requestCompaction(ctx context.Context, tx DBTX, dbID int, level, idempotencyKey int) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO compaction_requests (db_id, level, idempotency_key) VALUES (?, ?, ?)
 		ON CONFLICT (db_id, level)
@@ -58,7 +56,7 @@ func requestCompaction(ctx context.Context, tx *sql.Tx, dbID int, level, idempot
 	return err
 }
 
-func markCompactionRequestComplete(ctx context.Context, tx *sql.Tx, dbID, level, idempotencyKey int) error {
+func markCompactionRequestComplete(ctx context.Context, tx DBTX, dbID, level, idempotencyKey int) error {
 	_, err := tx.ExecContext(ctx, `
 		DELETE FROM compaction_requests
 		WHERE db_id = ? AND level = ? AND idempotency_key = ?

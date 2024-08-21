@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 
@@ -59,20 +58,19 @@ func (s *Store) WriteDatabaseTo(ctx context.Context, cluster, name string, txID 
 
 // WriteRemoteSnapshotTo writes a snapshot (from remote storage only) at a given TXID to w.
 func (s *Store) WriteRemoteSnapshotTo(ctx context.Context, cluster, name string, txID ltx.TXID, w io.Writer) error {
-	return errors.New("unimplemented")
-	// paths, err := CalcSnapshotPlan(ctx, s.RemoteClient, cluster, name, txID)
-	// if err != nil {
-	// 	return err
-	// }
+	paths, err := CalcSnapshotPlan(ctx, s.RemoteClient, cluster, name, txID)
+	if err != nil {
+		return err
+	}
 
-	// c, close, err := NewCompactorFromPaths(ctx, s.RemoteClient, paths, w)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer func() { _ = close() }()
+	c, close, err := NewCompactorFromPaths(ctx, s.RemoteClient, paths, w)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = close() }()
 
-	// if err := c.Compact(ctx); err != nil {
-	// 	return err
-	// }
-	// return close()
+	if err := c.Compact(ctx); err != nil {
+		return err
+	}
+	return close()
 }

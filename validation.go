@@ -2,6 +2,8 @@ package lfsb
 
 import (
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/superfly/ltx"
@@ -55,7 +57,29 @@ func isWordCh(ch rune) bool {
 		ch == '_' || ch == '-' || ch == '.'
 }
 
+// LTXFilenameLen is the length of LTX base filenames.
+const LTXFilenameLen = 16 + 1 + 16 + 4 // min,dash,max,ext
+
 // FormatLTXFilename returns a filename based on the min & max TXID.
 func FormatLTXFilename(min, max ltx.TXID) string {
 	return fmt.Sprintf("%s-%s.ltx", min.String(), max.String())
+}
+
+// ParseLTXFilename parses a base filename into min & max TXID.
+// Returns ErrInvalidLTXFilename if it is invalid.
+func ParseLTXFilename(name string) (min, max ltx.TXID, err error) {
+	if len(name) != LTXFilenameLen || filepath.Ext(name) != ".ltx" {
+		return 0, 0, ErrInvalidLTXFilename
+	}
+
+	mn, err := strconv.ParseUint(name[:16], 16, 64)
+	if err != nil {
+		return 0, 0, ErrInvalidLTXFilename
+	}
+
+	mx, err := strconv.ParseUint(name[17:33], 16, 64)
+	if err != nil {
+		return 0, 0, ErrInvalidLTXFilename
+	}
+	return ltx.TXID(mn), ltx.TXID(mx), nil
 }

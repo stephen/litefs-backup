@@ -81,7 +81,13 @@ type Store struct {
 	WriteTxBatchSize    int64
 	WriteTxBatchTimeout time.Duration
 
+	RemoteClient StorageClient
+
 	Levels CompactionLevels
+}
+
+func (s *Store) Now() time.Time {
+	return time.Now()
 }
 
 func (s *Store) Open() error {
@@ -428,4 +434,41 @@ func (s *Store) FindDBByName(ctx context.Context, cluster, name string) (*DB, er
 
 func (s *Store) FindDBsByCluster(ctx context.Context, cluster string) ([]*DB, error) {
 	return findDBsByCluster(ctx, s.db, cluster)
+}
+
+// WriteLTXPageRangeFrom writes a compacted LTX file for all updated pages since minTXID inclusive.
+// Returns the maximum transaction ID read up to. Returns ENOCOMPACTION if no transactions found.
+func (s *Store) WriteLTXPageRangeFrom(ctx context.Context, cluster, database string, minTXID ltx.TXID, w io.Writer) (ltx.Header, ltx.Trailer, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return ltx.Header{}, ltx.Trailer{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	db, err := findDBByName(ctx, tx, cluster, database)
+	if err != nil {
+		return ltx.Header{}, ltx.Trailer{}, err
+	}
+
+	var txnN int
+	var maxTXID ltx.TXID
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*), IFNULL(MAX(max_txid),0)
+		FROM txns
+		WHERE pending = FALSE AND db_id = ? AND min_txid >= ?
+	`,
+		db.ID, minTXID,
+	).Scan(
+		&txnN, &maxTXID,
+	); err != nil {
+		return ltx.Header{}, ltx.Trailer{}, fmt.Errorf("count pending txns: %w", err)
+	} else if txnN == 0 {
+		return ltx.Header{}, ltx.Trailer{}, lfsb.Errorf(lfsb.ErrorTypeNotFound, lfsb.ENOCOMPACTION, "no compaction") // no new data, skip compaction
+	}
+
+	header, trailer, err := writeLTXPageRangeTo(ctx, tx, db, minTXID, maxTXID, w)
+	if err != nil {
+		return ltx.Header{}, ltx.Trailer{}, err
+	}
+	return header, trailer, nil
 }

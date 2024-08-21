@@ -144,6 +144,27 @@ func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID
 	return &txn, nil
 }
 
+func findMaxTxnBeforeTimestamp(ctx context.Context, tx *sql.Tx, dbID int, timestamp time.Time) (*Txn, error) {
+	var minTXID, maxTXID ltx.TXID
+	if err := tx.QueryRowContext(ctx, `
+		SELECT min_txid, max_txid
+		FROM txns
+		WHERE pending = FALSE AND db_id = ? AND timestamp < ?
+		ORDER BY max_txid DESC
+		LIMIT 1
+	`,
+		dbID, ltx.FormatTimestamp(timestamp),
+	).Scan(
+		&minTXID, &maxTXID,
+	); err == sql.ErrNoRows {
+		return nil, lfsb.ErrTxNotAvailable
+	} else if err != nil {
+		return nil, err
+	}
+
+	return findTxnByTXIDRange(ctx, tx, dbID, minTXID, maxTXID)
+}
+
 func createTxn(ctx context.Context, tx DBTX, txn *Txn) error {
 	// Ensure there are no txns that overlap with the TXID range.
 	// This shouldn't happen but we should double check.
@@ -222,5 +243,28 @@ func deletePendingTxnAndPages(ctx context.Context, tx DBTX, dbID int, minTXID, m
 	); err != nil {
 		return fmt.Errorf("delete pages: %w", err)
 	}
+	return nil
+}
+
+func deleteTxnsBeforeMaxTXID(ctx context.Context, tx *sql.Tx, dbID int, maxTXID ltx.TXID) error {
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM txns
+		WHERE db_id = ?
+		  AND max_txid < ?
+	`,
+		dbID,
+		maxTXID,
+	); err != nil {
+		return err
+	}
+
+	// Ensure that at least one txn still exists.
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM txns WHERE db_id = ?`, dbID).Scan(&n); err != nil {
+		return fmt.Errorf("count txns: %w", err)
+	} else if n == 0 {
+		return fmt.Errorf("cannot delete all txns for db #%d", dbID)
+	}
+
 	return nil
 }

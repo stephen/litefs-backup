@@ -3,8 +3,10 @@ package store_test
 import (
 	"bytes"
 	"io"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stephen/litefs-backup/store"
 	"github.com/superfly/ltx"
@@ -14,6 +16,14 @@ import (
 func newStore(tb testing.TB, path string) *store.Store {
 	tb.Helper()
 	s := store.NewStore(tb.TempDir())
+	s.RemoteClient = NewFileStorageClient(filepath.Dir(path))
+
+	s.Levels = []*store.CompactionLevel{
+		{Level: 0},
+		{Level: 1, Interval: 1 * time.Minute},
+		{Level: 2, Interval: 10 * time.Minute},
+		{Level: 3, Interval: 20 * time.Minute},
+	}
 	return s
 }
 
