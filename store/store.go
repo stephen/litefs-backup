@@ -35,7 +35,6 @@ const (
 type WriteTxOptions struct {
 	AppendSnapshot bool
 	Timestamp      time.Time
-	// LeaseID        string // XXX: should be able to delete; for litefs vfs.
 }
 
 type WriteTxRequest struct {
@@ -95,6 +94,13 @@ type Store struct {
 	Levels CompactionLevels
 
 	Now func() time.Time
+}
+
+func (s *Store) dbLogger(cluster, database string) *slog.Logger {
+	return slog.With(
+		slog.String("cluster", cluster),
+		slog.String("database", database),
+	)
 }
 
 func (s *Store) Open() error {
@@ -240,13 +246,6 @@ func (s *Store) writeTxBatch(ctx context.Context, dec *ltx.Decoder, req *WriteTx
 	}
 
 	return pos, nil
-}
-
-func (s *Store) dbLogger(cluster, database string) *slog.Logger {
-	return slog.With(
-		slog.String("cluster", cluster),
-		slog.String("database", database),
-	)
 }
 
 func (s *Store) applyWriteTx(ctx context.Context, tx *sql.Tx, req *WriteTxRequest) (ltx.Pos, error) {
