@@ -5,3 +5,8 @@ setup:
 
 	mkdir -p ./data/
 	dbmate up
+
+.PHONY: minio
+minio:
+	mkdir -p ./data/minio/
+	minio server ./data/minio
