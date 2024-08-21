@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
+	lfsb "github.com/stephen/litefs-backup"
+	"github.com/superfly/ltx"
 )
 
 // APIHandler transforms a handler func with a returning error into Go's http.Handler
@@ -27,4 +30,32 @@ func RenderResponse(w http.ResponseWriter, resp any) error {
 	}
 
 	return nil
+}
+
+var typeToCode = map[lfsb.ErrorType]int{
+	lfsb.ErrorTypeConflict:      http.StatusConflict,
+	lfsb.ErrorTypeValidation:    http.StatusBadRequest,
+	lfsb.ErrorTypeNotFound:      http.StatusNotFound,
+	lfsb.ErrorTypeUnprocessable: http.StatusUnprocessableEntity,
+}
+var codeToType map[int]lfsb.ErrorType
+
+func init() {
+	codeToType = make(map[int]lfsb.ErrorType, len(typeToCode))
+	for k, v := range typeToCode {
+		codeToType[v] = k
+	}
+}
+
+type ErrorResponse struct {
+	Code  string   `json:"code"`
+	Error string   `json:"error"`
+	Pos   *ltx.Pos `json:"pos,omitempty"`
+}
+
+func HTTPCodeToErrorType(code int) lfsb.ErrorType {
+	if typ, ok := codeToType[code]; ok {
+		return typ
+	}
+	return lfsb.ErrorTypeUnknown
 }
