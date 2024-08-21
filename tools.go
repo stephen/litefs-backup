@@ -7,4 +7,5 @@ import (
 	_ "github.com/amacneil/dbmate"
 	_ "github.com/amonks/run/cmd/run"
 	_ "github.com/minio/minio"
+	_ "github.com/superfly/ltx/cmd/ltx"
 )
