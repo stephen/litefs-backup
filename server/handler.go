@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"time"
 
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/httputil"
@@ -74,4 +75,54 @@ func (s *Server) handleGetDBSnapshot(ctx context.Context, w http.ResponseWriter,
 	default:
 		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADFORMAT", "unsupported snapshot format")
 	}
+}
+
+func (s *Server) handlePostRestore(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
+	q := r.URL.Query()
+	// cluster := lfsb.ClusterNameFromContext(ctx)
+	cluster := "XXX"
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+
+	var txID ltx.TXID
+	if txIDStr := q.Get("txid"); txIDStr != "" {
+		if txID, err = ltx.ParseTXID(q.Get("txid")); err != nil {
+			return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "invalid txid")
+		}
+	}
+
+	var timestamp time.Time
+	if timestampStr := q.Get("timestamp"); timestampStr != "" {
+		if timestamp, err = ltx.ParseTimestamp(timestampStr); err != nil {
+			return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "invalid timestamp")
+		}
+	}
+
+	var newTX ltx.TXID
+	if txID != 0 && !timestamp.IsZero() {
+		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "can't specify both 'txid' and 'timestamp'")
+	} else if txID == 0 && timestamp.IsZero() {
+		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "'txid' or 'timestamp' required")
+	}
+
+	if !timestamp.IsZero() {
+		txID, err = s.store.FindTXIDByTimestamp(ctx, cluster, name, timestamp)
+		if err != nil {
+			return err
+		}
+	}
+
+	newTX, err = s.store.RestoreToTx(ctx, cluster, name, txID)
+	if err != nil {
+		return err
+	}
+
+	return httputil.RenderResponse(w, postRestoreResponse{TXID: newTX})
+}
+
+type postRestoreResponse struct {
+	TXID ltx.TXID `json:"txID"`
 }

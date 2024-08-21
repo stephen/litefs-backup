@@ -112,7 +112,7 @@ var (
 	ErrPageNotFound = Errorf(ErrorTypeNotFound, "ENOPAGE", "page not found")
 	// ErrInvalidPgno     = Errorf(ErrorTypeValidation, "EINVALIDPGNO", "invalid page number")
 
-	// ErrTimestampNotAvailable = Errorf(ErrorTypeNotFound, "ENOTIMESTAMP", "timestamp not available")
+	ErrTimestampNotAvailable = Errorf(ErrorTypeNotFound, "ENOTIMESTAMP", "timestamp not available")
 
 	// ErrClusterLimitReached = Errorf(ErrorTypeUnprocessable, "ECLUSTERLIMIT", "clusters limit reached")
 

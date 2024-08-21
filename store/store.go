@@ -22,6 +22,10 @@ import (
 )
 
 const (
+	// TargetRestoreLevel is the default compaction level used to find an LTX file
+	// suitable for restore to specific timestamp
+	TargetRestoreLevel = 2
+
 	DefaultWriteTxBatchSize    = 4 << 20 // 4MB
 	DefaultWriteTxBatchTimeout = 5 * time.Second
 )
@@ -143,12 +147,10 @@ func (s *Store) WriteTx(ctx context.Context, cluster, database string, r io.Read
 	}
 	hdr := dec.Header()
 
-	// XXX what is this
 	if opt.AppendSnapshot && !hdr.IsSnapshot() {
 		return ltx.Pos{}, fmt.Errorf("ltx file must be a snapshot to append")
 	}
 
-	// XXX what is this
 	// Override the header timestamp, if requested.
 	timestamp := time.UnixMilli(hdr.Timestamp).UTC()
 	if !opt.Timestamp.IsZero() {
@@ -471,4 +473,90 @@ func (s *Store) WriteLTXPageRangeFrom(ctx context.Context, cluster, database str
 		return ltx.Header{}, ltx.Trailer{}, err
 	}
 	return header, trailer, nil
+}
+
+// FindTXIDByTimestamp returns the TX closest to the given timestamp.
+func (s *Store) FindTXIDByTimestamp(ctx context.Context, cluster, database string, timestamp time.Time) (ltx.TXID, error) {
+	// Start at level 2, which is relatively low granularity and long retention and go
+	// upper looking for older data.
+	for level := TargetRestoreLevel; s.Levels.IsValidLevel(level); level = s.Levels.NextLevel(level) {
+		paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, level, func(p StoragePath) (bool, error) {
+			md, err := s.RemoteClient.Metadata(ctx, p)
+			if err != nil {
+				return false, err
+			}
+			if !md.Timestamp.After(timestamp) {
+				return true, nil
+			}
+
+			return false, ErrStopIter
+		})
+		if err != nil {
+			return 0, err
+		}
+
+		if len(paths) > 0 {
+			return paths[len(paths)-1].MaxTXID, nil
+		}
+	}
+
+	return 0, lfsb.ErrTimestampNotAvailable
+}
+
+// RestoreToTx restores the database to the give TX ID.
+func (s *Store) RestoreToTx(ctx context.Context, cluster, database string, txID ltx.TXID) (ltx.TXID, error) {
+	logger := s.dbLogger(cluster, database)
+
+	// Read TXID + post-apply checksum from last LTX file.
+	db, err := s.FindDBByName(ctx, cluster, database)
+	if err != nil {
+		return 0, err
+	}
+	pos := db.Pos()
+
+	if txID > pos.TXID {
+		logger.Debug("restore to non-existing pos requested",
+			slog.String("pos", pos.String()),
+			slog.String("tx", txID.String()),
+		)
+		return 0, lfsb.ErrTxNotAvailable
+	} else if txID == pos.TXID {
+		logger.Debug("restore to last pos requested",
+			slog.String("pos", pos.String()),
+			slog.String("tx", txID.String()),
+		)
+		return pos.TXID, nil
+	}
+
+	logger.Info("fetching database for restore",
+		slog.String("pos", pos.String()),
+		slog.String("tx", txID.String()))
+
+	// Write a full snapshot at the given TXID to a temporary file so we don't
+	// block the database when we apply the diff under a write transaction.
+	f, err := s.createTemp("restore-*.ltx")
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	defer func() { _ = f.Close() }()
+
+	if err := s.WriteSnapshotTo(ctx, cluster, database, txID, f); err != nil {
+		return 0, fmt.Errorf("write snapshot to temp file: %w", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+
+	newPos, err := s.WriteTx(ctx, cluster, database, f, &WriteTxOptions{
+		AppendSnapshot: true,
+		Timestamp:      s.Now(),
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	logger.Info("database restored", slog.Any("tx", txID))
+
+	return newPos.TXID, nil
 }
