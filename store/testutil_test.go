@@ -2,12 +2,19 @@ package store_test
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/store"
 	"github.com/superfly/ltx"
 )
@@ -64,5 +71,60 @@ func compareFileSpec(tb testing.TB, got, want *ltx.FileSpec) {
 	tb.Helper()
 	if !reflect.DeepEqual(got, want) {
 		tb.Fatalf("spec mismatch:\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func makeSQLiteDB(tb testing.TB, pageSize, rows int) []byte {
+	tb.Helper()
+
+	f, err := os.CreateTemp(tb.TempDir(), "db")
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite3", f.Name())
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA page_size = %d`, pageSize)); err != nil {
+		tb.Fatal(err)
+	}
+	if _, err := db.Exec(`VACUUM`); err != nil {
+		tb.Fatal(err)
+	}
+
+	if _, err := db.Exec(`CREATE TABLE test (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT)`); err != nil {
+		tb.Fatal(err)
+	}
+
+	for i := 0; i < rows; i++ {
+		if _, err := db.Exec(`INSERT INTO test (data) VALUES (?)`, strings.Repeat(strconv.Itoa(i), 512)); err != nil {
+			tb.Fatal(err)
+		}
+	}
+
+	if err := db.Close(); err != nil {
+		tb.Fatal(err)
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		tb.Fatal(err)
+	}
+
+	if err := f.Close(); err != nil {
+		tb.Fatal(err)
+	}
+
+	return data
+}
+
+func compactUpToLevel(tb testing.TB, s *store.Store, cluster, database string, level int) {
+	tb.Helper()
+	for lvl := 1; lvl <= level; lvl += 1 {
+		if _, err := s.CompactDBToLevel(context.Background(), cluster, database, lvl); err != nil && lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+			tb.Fatal(err)
+		}
 	}
 }

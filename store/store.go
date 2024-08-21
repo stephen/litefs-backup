@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -73,6 +75,9 @@ func NewStore(path string) *Store {
 		WriteTxBatchSize:    DefaultWriteTxBatchSize,
 		WriteTxBatchTimeout: DefaultWriteTxBatchTimeout,
 		Levels:              []*CompactionLevel{{Level: 0}},
+		Now: func() time.Time {
+			return time.Now()
+		},
 	}
 }
 
@@ -88,10 +93,8 @@ type Store struct {
 	RemoteClient StorageClient
 
 	Levels CompactionLevels
-}
 
-func (s *Store) Now() time.Time {
-	return time.Now()
+	Now func() time.Time
 }
 
 func (s *Store) Open() error {
@@ -559,4 +562,101 @@ func (s *Store) RestoreToTx(ctx context.Context, cluster, database string, txID 
 	logger.Info("database restored", slog.Any("tx", txID))
 
 	return newPos.TXID, nil
+}
+
+// StoreDatabase stores a SQLite database read from rd as a single LTX file on
+// top of any existing LTX files.
+func (s *Store) StoreDatabase(ctx context.Context, cluster, database string, source io.Reader) (ltx.Pos, error) {
+	source, hdr, err := readSQLiteDatabaseHeader(source)
+	if err != nil {
+		return ltx.Pos{}, fmt.Errorf("read sqlite header: %w", err)
+	}
+
+	// Rewrite database to LTX temp file.
+	tempFile, err := s.createTemp("store-*.ltx")
+	if err != nil {
+		return ltx.Pos{}, err
+	}
+	defer func() { _ = os.Remove(tempFile.Name()) }()
+	defer func() { _ = tempFile.Close() }()
+
+	enc := ltx.NewEncoder(tempFile)
+	if err := enc.EncodeHeader(ltx.Header{
+		Version:   ltx.Version,
+		PageSize:  hdr.pageSize,
+		Commit:    hdr.pageN,
+		MinTXID:   1,
+		MaxTXID:   1,
+		Timestamp: s.Now().UnixMilli(),
+	}); err != nil {
+		return ltx.Pos{}, fmt.Errorf("encode ltx header: %w", err)
+	}
+
+	data := make([]byte, hdr.pageSize)
+	var postApplyChecksum ltx.Checksum
+	for pgno := uint32(1); pgno <= hdr.pageN; pgno++ {
+		if _, err := io.ReadFull(source, data); err != nil {
+			return ltx.Pos{}, fmt.Errorf("read page %d: %w", pgno, err)
+		}
+
+		if pgno == ltx.LockPgno(hdr.pageSize) {
+			continue
+		}
+
+		postApplyChecksum = ltx.ChecksumFlag | (postApplyChecksum ^ ltx.ChecksumPage(pgno, data))
+
+		if err := enc.EncodePage(ltx.PageHeader{Pgno: pgno}, data); err != nil {
+			return ltx.Pos{}, fmt.Errorf("encode page %d: %w", pgno, err)
+		}
+	}
+
+	enc.SetPostApplyChecksum(postApplyChecksum)
+	if err := enc.Close(); err != nil {
+		return ltx.Pos{}, fmt.Errorf("close ltx encoder: %w", err)
+	} else if _, err := tempFile.Seek(0, io.SeekStart); err != nil {
+		return ltx.Pos{}, err
+	}
+
+	pos, err := s.WriteTx(ctx, cluster, database, tempFile, &WriteTxOptions{AppendSnapshot: true})
+	if err != nil {
+		return ltx.Pos{}, err
+	}
+
+	logger := s.dbLogger(cluster, database)
+	logger.InfoContext(ctx, "database stored",
+		slog.Any("tx", pos.TXID))
+
+	return pos, nil
+}
+
+const (
+	SQLITE_DATABASE_HEADER_STRING = "SQLite format 3\x00"
+
+	SQLITE_DATABASE_HEADER_SIZE = 100
+)
+
+type sqliteDatabaseHeader struct {
+	pageSize uint32
+	pageN    uint32
+}
+
+func readSQLiteDatabaseHeader(rd io.Reader) (ord io.Reader, hdr sqliteDatabaseHeader, err error) {
+	b := make([]byte, SQLITE_DATABASE_HEADER_SIZE)
+	if _, err := io.ReadFull(rd, b); err == io.ErrUnexpectedEOF {
+		return ord, hdr, lfsb.Errorf(lfsb.ErrorTypeUnprocessable, "EBADHEADER", "invalid database header")
+	} else if err != nil {
+		return ord, hdr, err
+	} else if !bytes.Equal(b[:len(SQLITE_DATABASE_HEADER_STRING)], []byte(SQLITE_DATABASE_HEADER_STRING)) {
+		return ord, hdr, lfsb.Errorf(lfsb.ErrorTypeUnprocessable, "EBADHEADER", "invalid database header")
+	}
+
+	hdr.pageSize = uint32(binary.BigEndian.Uint16(b[16:]))
+	hdr.pageN = binary.BigEndian.Uint32(b[28:])
+	if hdr.pageSize == 1 {
+		hdr.pageSize = 65536
+	}
+
+	ord = io.MultiReader(bytes.NewReader(b), rd)
+
+	return ord, hdr, nil
 }

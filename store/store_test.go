@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -832,6 +833,534 @@ func TestStore_WriteDatabaseTo(t *testing.T) {
 		}
 		if got, want := buf.Len(), 0; got != want {
 			t.Fatalf("len=%d, want %d", got, want)
+		}
+	})
+}
+
+func TestStore_RestoreToTx(t *testing.T) {
+	t.Run("SameSize", func(t *testing.T) {
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		s := newOpenStore(t, t.TempDir(),
+			func(s *store.Store) {
+				s.Now = func() time.Time {
+					return ts
+				}
+			},
+		)
+
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xc6e57aa102377eee},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		txid, err := s.RestoreToTx(context.Background(), "bkt", "db", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(3), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+
+		db, err := s.FindDBByName(context.Background(), "bkt", "db")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 3, PostApplyChecksum: 0xeb1a999231044ddd}); got != want {
+			t.Fatalf("Pos=%s, want %s", got, want)
+		}
+
+		// Read it back as a snapshot.
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "bkt", "db", 3, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		// Unmarshal to a spec and compare.
+		var other ltx.FileSpec
+		if _, err := other.ReadFrom(&buf); err != nil {
+			t.Fatal(err)
+		}
+
+		compareFileSpec(t, &other, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 3, Timestamp: ts.UnixMilli()},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd, FileChecksum: 0xd3745d48bef1677c},
+		})
+	})
+
+	t.Run("SourceShorter", func(t *testing.T) {
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		s := newOpenStore(t, t.TempDir(),
+			func(s *store.Store) {
+				s.Now = func() time.Time {
+					return ts
+				}
+			},
+		)
+
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		txid, err := s.RestoreToTx(context.Background(), "bkt", "db", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(3), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+
+		db, err := s.FindDBByName(context.Background(), "bkt", "db")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 3, PostApplyChecksum: 0xeb1a999231044ddd}); got != want {
+			t.Fatalf("Pos=%s, want %s", got, want)
+		}
+
+		// Read it back as a snapshot.
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "bkt", "db", 3, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		// Unmarshal to a spec and compare.
+		var other ltx.FileSpec
+		if _, err := other.ReadFrom(&buf); err != nil {
+			t.Fatal(err)
+		}
+
+		compareFileSpec(t, &other, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 3, Timestamp: ts.UnixMilli()},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd, FileChecksum: 0xd3745d48bef1677c},
+		})
+	})
+
+	t.Run("CurrentShorter", func(t *testing.T) {
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		s := newOpenStore(t, t.TempDir(),
+			func(s *store.Store) {
+				s.Now = func() time.Time {
+					return ts
+				}
+			},
+		)
+
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 1},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write a second transaction that shrinks the DB.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xad2dffe333333333},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("3"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xcdb0244fecd99000},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		txid, err := s.RestoreToTx(context.Background(), "bkt", "db", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(3), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+
+		db, err := s.FindDBByName(context.Background(), "bkt", "db")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 3, PostApplyChecksum: 0xad2dffe333333333}); got != want {
+			t.Fatalf("Pos=%s, want %s", got, want)
+		}
+
+		// Read it back as a snapshot.
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "bkt", "db", 3, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		// Unmarshal to a spec and compare.
+		var other ltx.FileSpec
+		if _, err := other.ReadFrom(&buf); err != nil {
+			t.Fatal(err)
+		}
+
+		compareFileSpec(t, &other, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 3, Timestamp: ts.UnixMilli()},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xbda6246263241293},
+		})
+	})
+
+	t.Run("LastTXID", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		txid, err := s.RestoreToTx(context.Background(), "bkt", "db", 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(2), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+
+		db, err := s.FindDBByName(context.Background(), "bkt", "db")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := db.Pos(), (ltx.Pos{TXID: 2, PostApplyChecksum: 0xad2dffe333333333}); got != want {
+			t.Fatalf("Pos=%s, want %s", got, want)
+		}
+
+		// Read it back as a snapshot.
+		var buf bytes.Buffer
+		if err := s.WriteSnapshotTo(context.Background(), "bkt", "db", 2, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		// Unmarshal to a spec and compare.
+		var other ltx.FileSpec
+		if _, err := other.ReadFrom(&buf); err != nil {
+			t.Fatal(err)
+		}
+
+		compareFileSpec(t, &other, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 2},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xb140bf35427d1cff},
+		})
+	})
+
+	t.Run("Large", func(t *testing.T) {
+		t.Run("Shrink", func(t *testing.T) {
+			if testing.Short() {
+				t.Skip("long running test, skipping in short mode")
+			}
+
+			tx1Path := filepath.Join("testdata", "1500mb.sqlite3")
+			testingutil.GenerateDBIfNotExists(t, tx1Path, 1500<<20)
+			tx2Path := filepath.Join("testdata", "500mb.sqlite3")
+			testingutil.GenerateDBIfNotExists(t, tx2Path, 500<<20)
+
+			ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+			s := newOpenStore(t, t.TempDir(),
+				func(s *store.Store) {
+					s.Now = func() time.Time {
+						return ts
+					}
+				},
+			)
+
+			tx1Rdr, err := os.Open(tx1Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx1Rdr.Close() }()
+
+			t.Log("storing first tx")
+			if _, err := s.StoreDatabase(context.Background(), "bkt", "db", tx1Rdr); err != nil {
+				t.Fatal(err)
+			}
+
+			tx2Rdr, err := os.Open(tx2Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx2Rdr.Close() }()
+
+			t.Log("storing second tx")
+			if _, err := s.StoreDatabase(context.Background(), "bkt", "db", tx2Rdr); err != nil {
+				t.Fatal(err)
+			}
+
+			t.Log("restoring to first tx")
+			txid, err := s.RestoreToTx(context.Background(), "bkt", "db", 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want, got := ltx.TXID(3), txid; want != got {
+				t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+			}
+		})
+	})
+
+	t.Run("ErrWrongTXID", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := s.RestoreToTx(context.Background(), "bkt", "db", 2)
+		if want, got := lfsb.ErrTxNotAvailable, err; want != got {
+			t.Fatalf("unexpected err, want = %v, got = %v", want, got)
+		}
+	})
+}
+
+func TestStore_StoreDatabase(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		data := makeSQLiteDB(t, 4096, 10)
+
+		pos, err := s.StoreDatabase(context.Background(), "bkt", "db", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		} else if want, got := ltx.TXID(1), pos.TXID; want != got {
+			t.Fatalf("unexpected TX ID, want = %v, got = %v", want, got)
+		}
+
+		// Read it back as a DB dump.
+		var buf bytes.Buffer
+		if err := s.WriteDatabaseTo(context.Background(), "bkt", "db", pos.TXID, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		if want, got := data, buf.Bytes(); !bytes.Equal(want, got) {
+			t.Fatalf("data mismatch:\ngot:  %#v\nwant: %#v", got, want)
+		}
+	})
+
+	t.Run("Existing", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 4096, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 4096)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xba568a48153a6705},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		data := makeSQLiteDB(t, 4096, 10)
+		pos, err := s.StoreDatabase(context.Background(), "bkt", "db", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		} else if want, got := ltx.TXID(2), pos.TXID; want != got {
+			t.Fatalf("unexpected TX ID, want = %v, got = %v", want, got)
+		}
+
+		// Read it back as a DB dump.
+		var buf bytes.Buffer
+		if err := s.WriteDatabaseTo(context.Background(), "bkt", "db", pos.TXID, &buf); err != nil {
+			t.Fatal(err)
+		}
+
+		if want, got := data, buf.Bytes(); !bytes.Equal(want, got) {
+			t.Fatalf("data mismatch:\ngot:  %#v\nwant: %#v", got, want)
+		}
+	})
+
+	t.Run("Multibatch", func(t *testing.T) {
+		path := filepath.Join("testdata", "10mb.sqlite3")
+		testingutil.GenerateDBIfNotExists(t, path, 10<<20)
+
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		s := newOpenStore(t, t.TempDir(),
+			func(s *store.Store) {
+				s.Now = func() time.Time {
+					return ts
+				}
+			},
+		)
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pos, err := s.StoreDatabase(context.Background(), "bkt", "db", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Note that the original lfsc test thought this checksum should be 0xdf469dbe97710e58.
+		// I tested this behavior on production litefs.fly.io and got the current response as well,
+		// 0xccab895e14ae1f66.
+		if got, want := pos, ltx.NewPos(1, 0xccab895e14ae1f66); got != want {
+			t.Fatalf("pos=%s, want %v", got, want)
+		}
+	})
+	t.Run("ErrPageSizeMismatch", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		data := makeSQLiteDB(t, 4096, 10)
+
+		pos, err := s.StoreDatabase(context.Background(), "bkt", "db", bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		} else if want, got := ltx.TXID(1), pos.TXID; want != got {
+			t.Fatalf("unexpected TX ID, want = %v, got = %v", want, got)
+		}
+
+		data = makeSQLiteDB(t, 512, 10)
+
+		_, err = s.StoreDatabase(context.Background(), "bkt", "db", bytes.NewReader(data))
+		if want, got := lfsb.ErrPageSizeMismatch, err; !errors.Is(got, want) {
+			t.Fatalf("unexpected error, want = %v, got = %v", want, got)
+		}
+	})
+}
+
+func TestStore_FindTXIDByTimestamp(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, Timestamp: ts.UnixMilli()},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, Timestamp: ts.Add(5 * time.Minute).UnixMilli(), PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xc6e57aa102377eee},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+
+		txid, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(1*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(1), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+	})
+
+	t.Run("Level3", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, Timestamp: ts.UnixMilli()},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel+1)
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, Timestamp: ts.Add(5 * time.Minute).UnixMilli(), PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xc6e57aa102377eee},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+
+		txid, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(1*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want, got := ltx.TXID(1), txid; want != got {
+			t.Fatalf("unexpected txid, want = %v, got = %v", want, got)
+		}
+	})
+
+	t.Run("ErrNoTimestamp", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		ts := time.Date(2023, time.June, 15, 14, 0, 0, 0, time.UTC)
+		// Write initial transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, Timestamp: ts.UnixMilli()},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+
+		// Write a second transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 2, MaxTXID: 2, Timestamp: ts.Add(5 * time.Minute).UnixMilli(), PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xc6e57aa102377eee},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel-1)
+
+		_, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(-1*time.Minute))
+		if want, got := lfsb.ErrTimestampNotAvailable, err; want != got {
+			t.Fatalf("unexpected err, want = %v, got = %v", want, got)
 		}
 	})
 }
