@@ -4,6 +4,12 @@
   cmd = "cat tools.go | grep _ | awk -F'\"' '{print $2}' | xargs -tI % go install %"
 
 [[task]]
+  id = "server"
+  type = "long"
+  cmd = "go run cmd/litefs-backup/*"
+  watch = ["**/*.go"]
+
+[[task]]
   id = "test"
   type = "short"
   cmd = "go test ./..."

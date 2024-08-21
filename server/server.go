@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stephen/litefs-backup/httputil"
@@ -10,7 +12,11 @@ import (
 )
 
 func Run(ctx context.Context) error {
-	store := store.NewStore("XXX")
+	store := store.NewStore("./data/lfsb")
+	if err := store.Open(); err != nil {
+		return err
+	}
+
 	return NewServer(store).Open()
 }
 
@@ -42,9 +48,16 @@ func (s *Server) Open() error {
 	// r.Get("/info", httputil.APIHandler(s.handleGetInfo))
 	// r.Post("/sync", httputil.APIHandler(s.handlePostSync))
 
+	addr := ":2200"
+	if bind := os.Getenv("LFSB_BIND"); bind != "" {
+		addr = bind
+	}
+
 	srv := &http.Server{
 		Handler: r,
+		Addr:    addr,
 	}
+	slog.Info("server listening", slog.String("addr", addr))
 
 	go srv.ListenAndServe()
 	return nil
