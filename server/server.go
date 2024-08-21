@@ -35,18 +35,12 @@ func (s *Server) Open() error {
 
 	r.Route("/db", func(r chi.Router) {
 		r.Get("/snapshot", httputil.APIHandler(s.handleGetDBSnapshot))
-		// r.Get("/info", httputil.APIHandler(s.handleGetDBInfo))
-		// r.Get("/page", httputil.APIHandler(s.handleGetDBPage))
-		// r.Get("/sync", httputil.APIHandler(s.handleGetDBSync))
 		r.Post("/tx", httputil.APIHandler(s.handlePostDBTx))
 		r.Post("/restore", httputil.APIHandler(s.handlePostRestore))
 		r.Post("/upload", httputil.APIHandler(s.handlePostUpload))
 	})
 
-	// r.Get("/hwm", httputil.APIHandler(s.handleGetHWM))
 	r.Get("/pos", httputil.APIHandler(s.handleGetPos))
-	// r.Get("/info", httputil.APIHandler(s.handleGetInfo))
-	// r.Post("/sync", httputil.APIHandler(s.handlePostSync))
 
 	addr := ":2200"
 	if bind := os.Getenv("LFSB_BIND"); bind != "" {
