@@ -6,12 +6,14 @@ A drop-in replacement backup service for the deprecated [LiteFS Cloud](https://f
 
 ### Setup
 ```bash
-make setup
+go install github.com/amonks/run/cmd/run@latest
+run install
 ```
 
 ### Test
 ```bash
-go test ./...
+run test
+run test-integration
 ```
 
 ### Migrations
