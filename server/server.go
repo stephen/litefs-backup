@@ -4,29 +4,31 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/go-chi/chi/v5"
+	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/httputil"
 	"github.com/stephen/litefs-backup/store"
 )
 
-func Run(ctx context.Context) error {
-	store := store.NewStore("./data/lfsb")
+func Run(ctx context.Context, config *lfsb.Config) error {
+	store := store.NewStore(config)
 	if err := store.Open(); err != nil {
 		return err
 	}
 
-	return NewServer(store).Open()
+	return NewServer(config, store).Open()
 }
 
 type Server struct {
-	store *store.Store
+	config *lfsb.Config
+	store  *store.Store
 }
 
-func NewServer(store *store.Store) *Server {
+func NewServer(config *lfsb.Config, store *store.Store) *Server {
 	return &Server{
-		store: store,
+		config: config,
+		store:  store,
 	}
 }
 
@@ -43,16 +45,11 @@ func (s *Server) Open() error {
 
 	r.Get("/pos", httputil.APIHandler(s.handleGetPos))
 
-	addr := ":2200"
-	if bind := os.Getenv("LFSB_BIND"); bind != "" {
-		addr = bind
-	}
-
 	srv := &http.Server{
 		Handler: r,
-		Addr:    addr,
+		Addr:    s.config.Address,
 	}
-	slog.Info("server listening", slog.String("addr", addr))
+	slog.Info("server listening", slog.String("addr", s.config.Address))
 
 	go srv.ListenAndServe()
 	return nil

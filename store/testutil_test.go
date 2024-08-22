@@ -22,7 +22,9 @@ import (
 // newShard returns an instance of Shard with standard compaction levels.
 func newStore(tb testing.TB, path string) *store.Store {
 	tb.Helper()
-	s := store.NewStore(tb.TempDir())
+	s := store.NewStore(&lfsb.Config{
+		Path: tb.TempDir(),
+	})
 	s.RemoteClient = NewFileStorageClient(filepath.Dir(path))
 
 	s.Levels = []*store.CompactionLevel{

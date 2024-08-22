@@ -39,9 +39,10 @@ type WriteTxPage struct {
 	Data []byte
 }
 
-func NewStore(path string) *Store {
+func NewStore(config *lfsb.Config) *Store {
 	return &Store{
-		path:   path,
+		config: config,
+		path:   config.Path,
 		Levels: []*CompactionLevel{{Level: 0}},
 		Now: func() time.Time {
 			return time.Now()
@@ -50,7 +51,8 @@ func NewStore(path string) *Store {
 }
 
 type Store struct {
-	db *sql.DB
+	config *lfsb.Config
+	db     *sql.DB
 
 	// path is the directory where we store our data.
 	path string
