@@ -33,6 +33,7 @@ func RenderResponse(w http.ResponseWriter, resp any) error {
 }
 
 var typeToCode = map[lfsb.ErrorType]int{
+	lfsb.ErrorTypeAuth:          http.StatusUnauthorized,
 	lfsb.ErrorTypeConflict:      http.StatusConflict,
 	lfsb.ErrorTypeValidation:    http.StatusBadRequest,
 	lfsb.ErrorTypeNotFound:      http.StatusNotFound,

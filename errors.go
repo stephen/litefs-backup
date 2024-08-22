@@ -10,7 +10,7 @@ import (
 type ErrorType string
 
 const (
-	// ErrorTypeAuth          ErrorType = "auth"
+	ErrorTypeAuth          ErrorType = "auth"
 	ErrorTypeConflict      ErrorType = "conflict"
 	ErrorTypeNotFound      ErrorType = "notfound"
 	ErrorTypeValidation    ErrorType = "validation"
