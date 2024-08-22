@@ -508,7 +508,6 @@ type StorageMetadata struct {
 	Timestamp         time.Time    // timestamp of when the transaction was committed
 	PreApplyChecksum  ltx.Checksum // checksum of the database before applying LTX file
 	PostApplyChecksum ltx.Checksum // checksum of the database after applying LTX file
-	NodeID            uint64       // identifier of the LiteFS node that wrote the file
 }
 
 // NewStorageMetadataFromLTX returns storage metadata from an LTX file's header & trailer.
@@ -519,7 +518,6 @@ func NewStorageMetadataFromLTX(header ltx.Header, trailer ltx.Trailer) StorageMe
 		Timestamp:         time.UnixMilli(header.Timestamp).UTC(),
 		PreApplyChecksum:  header.PreApplyChecksum,
 		PostApplyChecksum: trailer.PostApplyChecksum,
-		NodeID:            header.NodeID,
 	}
 }
 

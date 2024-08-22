@@ -72,7 +72,6 @@ func TestStorageClient_Metadata(t *testing.T) {
 			Timestamp:         time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC),
 			PreApplyChecksum:  2000,
 			PostApplyChecksum: 3000,
-			NodeID:            4000,
 		}
 		if err := client.WriteFile(context.Background(), path, strings.NewReader("foo")); err != nil {
 			t.Fatal(err)
@@ -237,7 +236,6 @@ func TestEncodeStorageMetadata(t *testing.T) {
 		Timestamp:         time.Date(2000, time.January, 1, 0, 0, 0, 123000000, time.UTC),
 		PreApplyChecksum:  3000,
 		PostApplyChecksum: 4000,
-		NodeID:            7000,
 	}
 
 	// Verify all fields encode correctly.
@@ -256,9 +254,6 @@ func TestEncodeStorageMetadata(t *testing.T) {
 	}
 	if got, want := *m["Post-Apply-Checksum"], "0000000000000fa0"; got != want {
 		t.Fatalf("Post-Apply-Checksum=%q, want %q", got, want)
-	}
-	if got, want := *m["Node-Id"], "0000000000001B58"; got != want {
-		t.Fatalf("Node-Id=%q, want %q", got, want)
 	}
 
 	// Verify that we can decode back to the original metadata.

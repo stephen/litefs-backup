@@ -382,14 +382,11 @@ func EncodeStorageMetadata(m store.StorageMetadata) map[string]*string {
 		"Timestamp":           aws.String(ltx.FormatTimestamp(m.Timestamp)),
 		"Pre-Apply-Checksum":  aws.String(fmt.Sprint(m.PreApplyChecksum)),
 		"Post-Apply-Checksum": aws.String(fmt.Sprint(m.PostApplyChecksum)),
-		"Node-Id":             aws.String(fmt.Sprintf("%016X", m.NodeID)),
 	}
 }
 
 // DecodeStorageMetadata decodes m into a metadata structure from S3 object metadata.
 func DecodeStorageMetadata(m map[string]*string) (md store.StorageMetadata, retErr error) {
-	var err error
-
 	if v := m["Page-Size"]; v != nil {
 		out, err := strconv.ParseUint(*v, 10, 32)
 		if retErr == nil {
@@ -428,12 +425,6 @@ func DecodeStorageMetadata(m map[string]*string) (md store.StorageMetadata, retE
 			retErr = err
 		}
 		md.PostApplyChecksum = ltx.Checksum(postApplyChecksum)
-	}
-
-	if v := m["Node-Id"]; v != nil {
-		if md.NodeID, err = strconv.ParseUint(*v, 16, 64); retErr == nil {
-			retErr = err
-		}
 	}
 
 	return md, retErr
