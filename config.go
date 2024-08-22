@@ -46,3 +46,5 @@ func ConfigFromEnv() (*Config, error) {
 
 	return c, nil
 }
+
+var Version = os.Getenv("LFSB_VERSION")
