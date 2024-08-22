@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/server"
 )
 
@@ -32,7 +33,12 @@ func Run(ctx context.Context) error {
 		defer sentry.Flush(1 * time.Second)
 	}
 
-	if err := server.Run(ctx); err != nil {
+	config, err := lfsb.ConfigFromEnv()
+	if err != nil {
+		return err
+	}
+
+	if err := server.Run(ctx, config); err != nil {
 		return err
 	}
 
