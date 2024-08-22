@@ -269,7 +269,7 @@ func newStorageClient(tb testing.TB) *s3.StorageClient {
 	if !*integration {
 		tb.Skip("integration tests not enabled, skipping")
 	}
-	return s3.NewStorageClient(Bucket)
+	return s3.NewStorageClient(&lfsb.Config{S3Bucket: Bucket})
 }
 
 func newOpenStorageClient(tb testing.TB) *s3.StorageClient {

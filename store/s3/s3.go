@@ -26,15 +26,17 @@ var _ store.StorageClient = (*StorageClient)(nil)
 
 // StorageClient represents a client for long-term storage on the file system.
 type StorageClient struct {
+	endpoint string
 	bucket   string // s3 bucket name
 	svc      *s3.S3 // s3 service
 	uploader *s3manager.Uploader
 }
 
 // NewStorageClient returns a new instance of StorageClient.
-func NewStorageClient(bucket string) *StorageClient {
+func NewStorageClient(config *lfsb.Config) *StorageClient {
 	return &StorageClient{
-		bucket: bucket,
+		bucket:   config.S3Bucket,
+		endpoint: config.S3Bucket,
 	}
 }
 
@@ -43,7 +45,7 @@ func NewStorageClient(bucket string) *StorageClient {
 // See AWS session docs for details: https://docs.aws.amazon.com/sdk-for-go/api/aws/session/
 func (c *StorageClient) Open() (err error) {
 	var opts []*aws.Config
-	if endpoint := os.Getenv("LFSB_S3_ENDPOINT"); endpoint != "" {
+	if endpoint := c.endpoint; endpoint != "" {
 		opts = append(opts, &aws.Config{
 			Endpoint:         &endpoint,
 			S3ForcePathStyle: aws.Bool(true),
