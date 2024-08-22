@@ -32,6 +32,7 @@ func NewServer(store *store.Store) *Server {
 
 func (s *Server) Open() error {
 	r := chi.NewRouter()
+	r.Use(httputil.CheckClusterNoAuth)
 
 	r.Route("/db", func(r chi.Router) {
 		r.Get("/snapshot", httputil.APIHandler(s.handleGetDBSnapshot))

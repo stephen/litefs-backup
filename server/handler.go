@@ -11,8 +11,7 @@ import (
 )
 
 func (s *Server) handlePostDBTx(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	// cluster := lfsc.ClusterNameFromContext(ctx)
-	cluster := "XXX"
+	cluster := httputil.ClusterNameFromContext(ctx)
 
 	name := r.URL.Query().Get("db")
 	if err := lfsb.ValidateDatabase(name); err != nil {
@@ -34,7 +33,7 @@ func (s *Server) handlePostDBTx(ctx context.Context, w http.ResponseWriter, r *h
 }
 
 func (s *Server) handleGetPos(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	cluster := "XXX"
+	cluster := httputil.ClusterNameFromContext(ctx)
 
 	// Determine the current replication position for all databases.
 	dbs, err := s.store.FindDBsByCluster(ctx, cluster)
@@ -52,7 +51,7 @@ func (s *Server) handleGetPos(ctx context.Context, w http.ResponseWriter, r *htt
 
 func (s *Server) handleGetDBSnapshot(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
 	q := r.URL.Query()
-	cluster := "XXX"
+	cluster := httputil.ClusterNameFromContext(ctx)
 
 	name := q.Get("db")
 	if err := lfsb.ValidateDatabase(name); err != nil {
@@ -79,8 +78,7 @@ func (s *Server) handleGetDBSnapshot(ctx context.Context, w http.ResponseWriter,
 
 func (s *Server) handlePostRestore(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
 	q := r.URL.Query()
-	// cluster := lfsb.ClusterNameFromContext(ctx)
-	cluster := "XXX"
+	cluster := httputil.ClusterNameFromContext(ctx)
 
 	name := q.Get("db")
 	if err := lfsb.ValidateDatabase(name); err != nil {
@@ -129,7 +127,7 @@ type postRestoreResponse struct {
 
 func (s *Server) handlePostUpload(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
-	cluster := "XXX"
+	cluster := httputil.ClusterNameFromContext(ctx)
 
 	name := q.Get("db")
 	if err := lfsb.ValidateDatabase(name); err != nil {
