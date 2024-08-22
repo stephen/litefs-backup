@@ -241,7 +241,7 @@ func compactPagesBefore(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID) e
 	return rows.Close()
 }
 
-func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxRequest) (ltx.Checksum, error) {
+func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, pages []*WriteTxPage) (ltx.Checksum, error) {
 	prevPageStmt, err := tx.PrepareContext(ctx, `
 		SELECT data
 		FROM pages
@@ -262,16 +262,11 @@ func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxReq
 	}
 
 	// Start with the previous checksum and verify that the resulting checksum
-	// is correct. If this a multi-batch write then we continue with the partially
-	// updated checksum that was stored in the Txn from the last batch. This way
-	// we can do small incremental calculations rather than one big one at the end.
-	postApplyChecksum := req.PreApplyChecksum
-	if req.WriteIndex > 0 {
-		postApplyChecksum = txn.PostApplyChecksum
-	}
+	// is correct.
+	postApplyChecksum := txn.PreApplyChecksum
 
-	prevPageData := make([]byte, req.PageSize)
-	for _, page := range req.Pages {
+	prevPageData := make([]byte, txn.PageSize)
+	for _, page := range pages {
 		// Skip if previous version of the page is the same.
 		if page.Pgno <= db.Commit {
 			if err := prevPageStmt.QueryRowContext(ctx, db.ID, page.Pgno, db.TXID).Scan(&prevPageData); err == sql.ErrNoRows {
@@ -298,8 +293,8 @@ func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxReq
 		if _, err := insertStmt.ExecContext(ctx,
 			db.ID,
 			page.Pgno,
-			req.MinTXID,
-			req.MaxTXID,
+			txn.MinTXID,
+			txn.MaxTXID,
 			sqliteutil.Checksum(chksum),
 			page.Data,
 		); err != nil {
@@ -309,26 +304,25 @@ func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxReq
 
 	// On the last batch, truncate page checksum from shrinking the database
 	// and perform some validation before we finally commit.
-	if req.IsLastBatch() {
-		// Remove checksums from truncated pages.
-		lockPgno := ltx.LockPgno(req.PageSize)
-		for pgno := req.Commit + 1; pgno <= db.Commit; pgno++ {
-			if pgno == lockPgno {
-				continue
-			}
-
-			if err := prevPageStmt.QueryRowContext(ctx, db.ID, pgno, db.TXID).Scan(&prevPageData); err != nil {
-				return 0, fmt.Errorf("read truncated page %d @ %s: %w", pgno, db.TXID, err)
-			}
-
-			prevChksum := ltx.ChecksumPage(pgno, prevPageData)
-			postApplyChecksum = ltx.ChecksumFlag | (postApplyChecksum ^ prevChksum)
+	// Remove checksums from truncated pages.
+	lockPgno := ltx.LockPgno(txn.PageSize)
+	for pgno := txn.Commit + 1; pgno <= db.Commit; pgno++ {
+		if pgno == lockPgno {
+			continue
 		}
 
-		// Ensure all additional pages exist when we extend the database size.
-		if req.Commit > db.Commit {
-			var n int
-			if err := tx.QueryRowContext(ctx, `
+		if err := prevPageStmt.QueryRowContext(ctx, db.ID, pgno, db.TXID).Scan(&prevPageData); err != nil {
+			return 0, fmt.Errorf("read truncated page %d @ %s: %w", pgno, db.TXID, err)
+		}
+
+		prevChksum := ltx.ChecksumPage(pgno, prevPageData)
+		postApplyChecksum = ltx.ChecksumFlag | (postApplyChecksum ^ prevChksum)
+	}
+
+	// Ensure all additional pages exist when we extend the database size.
+	if txn.Commit > db.Commit {
+		var n int
+		if err := tx.QueryRowContext(ctx, `
 				SELECT COUNT(*)
 				FROM pages
 				WHERE db_id = ?
@@ -336,23 +330,22 @@ func insertPages(ctx context.Context, tx DBTX, db *DB, txn *Txn, req *WriteTxReq
 				  AND min_txid = ?
 				  AND max_txid = ?
 			`,
-				db.ID, db.Commit, req.MinTXID, req.MaxTXID,
-			).Scan(
-				&n,
-			); err != nil {
-				return 0, fmt.Errorf("count extended pages: %w", err)
-			}
+			db.ID, db.Commit, txn.MinTXID, txn.MaxTXID,
+		).Scan(
+			&n,
+		); err != nil {
+			return 0, fmt.Errorf("count extended pages: %w", err)
+		}
 
-			// Determine the expected number of pages. If we cross the lock page
-			// boundary then we should remove that page as we don't track it.
-			diff := int(req.Commit - db.Commit)
-			if db.Commit < lockPgno && req.Commit >= lockPgno {
-				diff--
-			}
+		// Determine the expected number of pages. If we cross the lock page
+		// boundary then we should remove that page as we don't track it.
+		diff := int(txn.Commit - db.Commit)
+		if db.Commit < lockPgno && txn.Commit >= lockPgno {
+			diff--
+		}
 
-			if diff != n {
-				return 0, lfsb.Errorf(lfsb.ErrorTypeValidation, "EMISSINGPAGES", "database extend without all pages, expected %d new pages, found %d pages", diff, n)
-			}
+		if diff != n {
+			return 0, lfsb.Errorf(lfsb.ErrorTypeValidation, "EMISSINGPAGES", "database extend without all pages, expected %d new pages, found %d pages", diff, n)
 		}
 	}
 

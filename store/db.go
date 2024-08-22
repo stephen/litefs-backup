@@ -44,7 +44,7 @@ func findDB(ctx context.Context, tx DBTX, id int) (*DB, error) {
 	if err := tx.QueryRowContext(ctx, `
 		SELECT d.id, d.cluster, d.name, d.hwm, IFNULL(t.max_txid,0), t.post_apply_checksum, IFNULL(t.page_size,0), IFNULL(t."commit",0), t.timestamp
 		FROM databases d
-		LEFT JOIN txns t ON d.id = t.db_id AND t.pending = FALSE
+		LEFT JOIN txns t ON d.id = t.db_id
 		WHERE d.id = ?
 		ORDER BY t.max_txid DESC
 		LIMIT 1

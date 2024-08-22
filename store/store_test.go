@@ -119,62 +119,10 @@ func TestStore_WriteTx(t *testing.T) {
 		}
 	})
 
-	t.Run("Multibatch/ErrTxPending", func(t *testing.T) {
+	t.Run("Multiwrite", func(t *testing.T) {
+		// This test used to check that two concurrent writes would block on each other,
+		// after a timeout, but now we check that one fails.
 		s := newOpenStore(t, t.TempDir())
-
-		b := testingutil.NewStatefulBlob(0, 4096)
-		if pos, err := s.WriteTx(context.Background(), "bkt", "db", b.Extend(t, 10<<20), nil); err != nil {
-			t.Fatal(err)
-		} else if got, want := pos, ltx.NewPos(1, 0xe05f7d3b740a45a3); got != want {
-			t.Fatalf("pos=%s, want %v", got, want)
-		}
-
-		rr := testingutil.NewResumableReader()
-		var g errgroup.Group
-
-		// One multibatch transaction is written but we pause it in the middle.
-		b0 := b.Clone()
-		g.Go(func() error {
-			data, _ := io.ReadAll(b0.Extend(t, 20<<20))
-			r := io.MultiReader(
-				bytes.NewReader(data[:len(data)/2]),
-				rr,
-				bytes.NewReader(data[len(data)/2:]),
-			)
-
-			pos, err := s.WriteTx(context.Background(), "bkt", "db", r, nil)
-			if err != nil {
-				return err
-			} else if got, want := pos, ltx.NewPos(2, 0xec8959317e958c80); got != want {
-				return fmt.Errorf("first txn pos=%s, want %v", got, want)
-			}
-
-			return nil
-		})
-
-		// Another transaction starts while we're in the middle of the previous tx.
-		// This one should error out as a conflict.
-		b1 := b.Clone()
-		g.Go(func() error {
-			<-rr.Reading()
-
-			_, err := s.WriteTx(context.Background(), "bkt", "db", b1.Extend(t, 21<<20), nil)
-			rr.Resume(nil)
-			if err == nil || err.Error() != `write batch 0: conflict (ETXPENDING): cannot write while transaction in progress` {
-				return fmt.Errorf("unexpected error on second tx: %w", err)
-			}
-
-			return nil
-		})
-
-		if err := g.Wait(); err != nil {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("Multibatch/Timeout", func(t *testing.T) {
-		s := newOpenStore(t, t.TempDir())
-		s.WriteTxBatchTimeout = 1 * time.Second
 
 		b := testingutil.NewStatefulBlob(0, 4096)
 		if pos, err := s.WriteTx(context.Background(), "bkt", "db", b.Extend(t, 1<<20), nil); err != nil {
@@ -192,7 +140,8 @@ func TestStore_WriteTx(t *testing.T) {
 			r := io.MultiReader(bytes.NewReader(data[:len(data)/2]), rr, bytes.NewReader(data[len(data)/2:]))
 
 			_, err := s.WriteTx(context.Background(), "bkt", "db", r, nil)
-			if err == nil || err.Error() != `write batch 1: conflict (ETXTIMEOUT): write transaction timed out` {
+			posErr := &ltx.PosMismatchError{}
+			if err == nil || !errors.As(err, &posErr) {
 				return fmt.Errorf("unexpected error on first txn: %w", err)
 			}
 			return nil
@@ -203,7 +152,7 @@ func TestStore_WriteTx(t *testing.T) {
 		g.Go(func() error {
 			// Wait for the timeout to be exceeded
 			<-rr.Reading()
-			time.Sleep(s.WriteTxBatchTimeout)
+			time.Sleep(time.Second)
 			defer rr.Resume(nil)
 
 			pos, err := s.WriteTx(context.Background(), "bkt", "db", b1.Extend(t, 11<<20), nil)
@@ -229,7 +178,6 @@ func TestStore_WriteTx(t *testing.T) {
 
 	t.Run("Multibatch/ContinueAfterTimeout", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
-		s.WriteTxBatchTimeout = 1 * time.Second
 
 		b := testingutil.NewStatefulBlob(0, 4096)
 		if pos, err := s.WriteTx(context.Background(), "bkt", "db", b.Extend(t, 1<<20), nil); err != nil {
@@ -244,7 +192,7 @@ func TestStore_WriteTx(t *testing.T) {
 		rr := testingutil.NewResumableReader()
 		r := io.MultiReader(bytes.NewReader(data[:len(data)/2]), rr, bytes.NewReader(data[len(data)/2:]))
 
-		go func() { <-rr.Reading(); time.Sleep(s.WriteTxBatchTimeout); rr.Resume(nil) }()
+		go func() { <-rr.Reading(); time.Sleep(time.Second); rr.Resume(nil) }()
 
 		if pos, err := s.WriteTx(context.Background(), "bkt", "db", r, nil); err != nil {
 			t.Fatalf("unexpected error on first txn: %s", err)
@@ -262,7 +210,6 @@ func TestStore_WriteTx(t *testing.T) {
 
 	t.Run("Multibatch/PartialLTX", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
-		s.WriteTxBatchTimeout = 1 * time.Second
 
 		b := testingutil.NewStatefulBlob(0, 4096)
 		if pos, err := s.WriteTx(context.Background(), "bkt", "db", b.Extend(t, 1<<20), nil); err != nil {
@@ -276,12 +223,12 @@ func TestStore_WriteTx(t *testing.T) {
 		data, _ := io.ReadAll(b1.Extend(t, 10<<20))
 		r := bytes.NewReader(data[:len(data)-1]) // shave off last byte
 
-		if _, err := s.WriteTx(context.Background(), "bkt", "db", r, nil); err == nil || err.Error() != `write batch 2: close ltx decoder: unexpected EOF` {
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", r, nil); err == nil || !errors.Is(err, io.ErrUnexpectedEOF) {
 			t.Fatalf("unexpected error: %s", err)
 		}
 
 		// Ensure next transaction works fine after previous transaction expires.
-		time.Sleep(s.WriteTxBatchTimeout)
+		time.Sleep(time.Second)
 		if pos, err := s.WriteTx(context.Background(), "bkt", "db", b.Extend(t, 11<<20), nil); err != nil {
 			t.Fatal(err)
 		} else if got, want := pos, b.Pos(); got != want {
@@ -291,7 +238,6 @@ func TestStore_WriteTx(t *testing.T) {
 
 	t.Run("Multibatch/Compaction", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
-		s.WriteTxBatchTimeout = 1 * time.Second
 		s.Levels[0].Retention = 1 * time.Millisecond
 
 		b := testingutil.NewStatefulBlob(0, 4096)

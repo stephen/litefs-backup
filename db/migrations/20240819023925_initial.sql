@@ -17,11 +17,6 @@ CREATE TABLE txns (
 	pre_apply_checksum BLOB,
 	post_apply_checksum BLOB NOT NULL,
 
-	write_key INTEGER NOT NULL DEFAULT 0,
-	write_index INTEGER NOT NULL DEFAULT 0,
-	write_expires_at TEXT,
-	pending INTEGER GENERATED ALWAYS AS (write_key != 0),
-
 	PRIMARY KEY (db_id, min_txid, max_txid),
 	CONSTRAINT fk_txns_db_id FOREIGN KEY (db_id) REFERENCES databases (id) ON DELETE CASCADE
 ) STRICT;

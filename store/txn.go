@@ -21,15 +21,6 @@ type Txn struct {
 	Timestamp         time.Time
 	PreApplyChecksum  ltx.Checksum
 	PostApplyChecksum ltx.Checksum
-
-	WriteKey       int64
-	WriteIndex     int64
-	WriteExpiresAt *time.Time
-}
-
-// Pending returns true if txn is not yet completed.
-func (txn *Txn) Pending() bool {
-	return txn.WriteKey != 0
 }
 
 // PreApplyPos returns the replication position before the txn is applied.
@@ -53,7 +44,7 @@ func findTxnByMaxTXID(ctx context.Context, tx DBTX, dbID int, maxTXID ltx.TXID) 
 	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid
 		FROM txns
-		WHERE pending = FALSE AND db_id = ? AND max_txid = ?
+		WHERE db_id = ? AND max_txid = ?
 		ORDER BY min_txid
 	`,
 		dbID, maxTXID,
@@ -71,25 +62,7 @@ func findTxnByMinTXID(ctx context.Context, tx DBTX, dbID int, minTXID ltx.TXID) 
 	if err := tx.QueryRowContext(ctx, `
 		SELECT max_txid
 		FROM txns
-		WHERE pending = FALSE AND db_id = ? AND min_txid = ?
-		ORDER BY max_txid
-	`,
-		dbID, minTXID,
-	).Scan(&maxTXID); err == sql.ErrNoRows {
-		return nil, lfsb.ErrTxNotAvailable
-	} else if err != nil {
-		return nil, err
-	}
-
-	return findTxnByTXIDRange(ctx, tx, dbID, minTXID, maxTXID)
-}
-
-func findPendingTxnByMinTXID(ctx context.Context, tx DBTX, dbID int, minTXID ltx.TXID) (*Txn, error) {
-	var maxTXID ltx.TXID
-	if err := tx.QueryRowContext(ctx, `
-		SELECT max_txid
-		FROM txns
-		WHERE pending = TRUE AND db_id = ? AND min_txid = ?
+		WHERE db_id = ? AND min_txid = ?
 		ORDER BY max_txid
 	`,
 		dbID, minTXID,
@@ -105,7 +78,6 @@ func findPendingTxnByMinTXID(ctx context.Context, tx DBTX, dbID int, minTXID ltx
 func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID ltx.TXID) (*Txn, error) {
 	txn := Txn{DBID: dbID}
 
-	var writeExpiresAt sqliteutil.NullTime
 	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid,
 		       max_txid,
@@ -113,10 +85,7 @@ func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID
 		       "commit",
 		       timestamp,
 		       pre_apply_checksum,
-		       post_apply_checksum,
-		       write_key,
-		       write_index,
-		       write_expires_at
+		       post_apply_checksum
 		FROM txns
 		WHERE db_id = ? AND min_txid = ? AND max_txid = ?
 		ORDER BY min_txid
@@ -130,16 +99,11 @@ func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID
 		(*sqliteutil.Time)(&txn.Timestamp),
 		(*sqliteutil.Checksum)(&txn.PreApplyChecksum),
 		(*sqliteutil.Checksum)(&txn.PostApplyChecksum),
-		&txn.WriteKey,
-		&txn.WriteIndex,
-		&writeExpiresAt,
 	); err == sql.ErrNoRows {
 		return nil, lfsb.ErrTxNotAvailable
 	} else if err != nil {
 		return nil, err
 	}
-
-	txn.WriteExpiresAt = writeExpiresAt.T()
 
 	return &txn, nil
 }
@@ -149,7 +113,7 @@ func findMaxTxnBeforeTimestamp(ctx context.Context, tx *sql.Tx, dbID int, timest
 	if err := tx.QueryRowContext(ctx, `
 		SELECT min_txid, max_txid
 		FROM txns
-		WHERE pending = FALSE AND db_id = ? AND timestamp < ?
+		WHERE db_id = ? AND timestamp < ?
 		ORDER BY max_txid DESC
 		LIMIT 1
 	`,
@@ -193,12 +157,9 @@ func createTxn(ctx context.Context, tx DBTX, txn *Txn) error {
 			"commit",
 			timestamp,
 			pre_apply_checksum,
-			post_apply_checksum,
-			write_key,
-			write_index,
-			write_expires_at
+			post_apply_checksum
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		txn.DBID,
 		txn.MinTXID,
@@ -208,40 +169,8 @@ func createTxn(ctx context.Context, tx DBTX, txn *Txn) error {
 		sqliteutil.Time(txn.Timestamp),
 		sqliteutil.Checksum(txn.PreApplyChecksum),
 		sqliteutil.Checksum(txn.PostApplyChecksum),
-		txn.WriteKey,
-		txn.WriteIndex,
-		sqliteutil.NewNullTime(txn.WriteExpiresAt),
 	); err != nil {
 		return err
-	}
-	return nil
-}
-
-func deletePendingTxnAndPages(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID ltx.TXID) error {
-	if result, err := tx.ExecContext(ctx, `
-		DELETE FROM txns
-		WHERE db_id = ? AND min_txid = ? AND max_txid = ?
-	`,
-		dbID,
-		minTXID,
-		maxTXID,
-	); err != nil {
-		return err
-	} else if n, err := result.RowsAffected(); err != nil {
-		return err
-	} else if n == 0 {
-		return lfsb.ErrTxNotAvailable
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM pages
-		WHERE db_id = ? AND min_txid = ? AND max_txid = ?
-	`,
-		dbID,
-		minTXID,
-		maxTXID,
-	); err != nil {
-		return fmt.Errorf("delete pages: %w", err)
 	}
 	return nil
 }
