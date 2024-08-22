@@ -1,0 +1,20 @@
+# fly.toml app configuration file generated for tender-litefs-backup on 2024-08-22T16:03:37+08:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'tender-litefs-backup'
+primary_region = 'dfw'
+
+[build]
+
+[http_service]
+  internal_port = 2200
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  size = 'shared-cpu-1x'
