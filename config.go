@@ -34,13 +34,13 @@ func ConfigFromEnv() (*Config, error) {
 
 	c.Address = os.Getenv("LFSB_BIND")
 
-	if env := os.Getenv("LFSB_S3_BUCKET"); env != "" {
+	if env := os.Getenv("BUCKET_NAME"); env != "" {
 		c.S3Bucket = env
 	} else {
 		return nil, Errorf(ErrorTypeValidation, "EINVALIDCONFIG", "LFSB_S3_BUCKET must be set")
 	}
 
-	c.S3Endpoint = os.Getenv("LFSB_S3_ENDPOINT")
+	c.S3Endpoint = os.Getenv("AWS_ENDPOINT_URL_S3")
 
 	c.SentryDSN = os.Getenv("SENTRY_DSN")
 
