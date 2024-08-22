@@ -10,13 +10,6 @@
   watch = ["**/*.go"]
 
 [[task]]
-  id = "bench"
-  type = "long"
-  cmd = "go run cmd/bench/* -cluster-id bench -token cluster bench"
-  dependencies = ["server"]
-  watch = ["**/*.go"]
-
-[[task]]
   id = "test"
   type = "short"
   cmd = "go test ./..."
