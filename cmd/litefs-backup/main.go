@@ -25,17 +25,16 @@ func Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Initialize Sentry for error reporting if set in the environment variables.
-	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
+	config, err := lfsb.ConfigFromEnv()
+	if err != nil {
+		return err
+	}
+
+	if dsn := config.SentryDSN; dsn != "" {
 		if err := sentry.Init(sentry.ClientOptions{Dsn: dsn, Debug: true}); err != nil {
 			return fmt.Errorf("cannot init sentry: %w", err)
 		}
 		defer sentry.Flush(1 * time.Second)
-	}
-
-	config, err := lfsb.ConfigFromEnv()
-	if err != nil {
-		return err
 	}
 
 	if err := server.Run(ctx, config); err != nil {

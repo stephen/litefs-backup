@@ -15,6 +15,10 @@ type Config struct {
 
 	// S3Endpoint is the S3 api endpoint to use. Useful for using S3-compatible alternatives.
 	S3Endpoint string
+
+	// SentryDSN is the sentry DSN to use.
+	// See: https://docs.sentry.io/concepts/key-terms/dsn-explainer/
+	SentryDSN string
 }
 
 func ConfigFromEnv() (*Config, error) {
@@ -37,6 +41,8 @@ func ConfigFromEnv() (*Config, error) {
 	}
 
 	c.S3Endpoint = os.Getenv("LFSB_S3_ENDPOINT")
+
+	c.SentryDSN = os.Getenv("SENTRY_DSN")
 
 	return c, nil
 }
