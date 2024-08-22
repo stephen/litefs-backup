@@ -24,6 +24,7 @@ func main() {
 func Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	slog.InfoContext(ctx, "running litefs-backup", slog.String("version", lfsb.Version))
 
 	config, err := lfsb.ConfigFromEnv()
 	if err != nil {
