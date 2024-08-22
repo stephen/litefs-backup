@@ -42,3 +42,7 @@ The AWS S3 bucket name to use.
 The AWS S3 endpoint to use. The default is AWS S3.
 
 This option is useful for using S3-compatible storage providers.
+
+#### `SENTRY_DSN` (optional)
+The [Sentry DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/) to use. Sentry reporting will be
+disabled if unset.
