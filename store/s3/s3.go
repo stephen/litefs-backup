@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/getsentry/sentry-go"
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/store"
 	"github.com/superfly/ltx"
@@ -303,7 +304,7 @@ func newStoragePathIterator(ctx context.Context, client *StorageClient, cluster,
 	itr.ctx, itr.cancel = context.WithCancelCause(ctx)
 
 	itr.g.Go(func() error {
-		// defer sentry.Recover() XXX
+		defer sentry.Recover()
 		defer close(itr.ch)
 		if err := itr.fetch(itr.ctx); err != nil {
 			itr.ch <- storagePathResponse{err: err}

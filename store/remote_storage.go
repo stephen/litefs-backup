@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/superfly/ltx"
 	"golang.org/x/exp/slices"
@@ -247,7 +248,7 @@ func AttachMetadata(ctx context.Context, client StorageClient, paths []StoragePa
 	// Send path indexes to a channel.
 	ch := make(chan int)
 	g.Go(func() error {
-		// defer sentry.Recover()
+		defer sentry.Recover()
 		defer close(ch)
 
 		for i := range paths {
@@ -263,7 +264,7 @@ func AttachMetadata(ctx context.Context, client StorageClient, paths []StoragePa
 	// Start worker goroutines to process each path.
 	for i := 0; i < parallelism; i++ {
 		g.Go(func() error {
-			// defer sentry.Recover()
+			defer sentry.Recover()
 			for {
 				select {
 				case <-ctx.Done():
