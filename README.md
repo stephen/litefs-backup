@@ -43,6 +43,15 @@ The AWS S3 endpoint to use. The default is AWS S3.
 
 This option is useful for using S3-compatible storage providers.
 
+### `AWS_REGION` (required)
+The AWS S3 region to use.
+
+### `AWS_ACCESS_KEY` (required)
+The AWS S3 access key to use.
+
+### `AWS_SECRET_KEY` (required)
+The AWS S3 secret key to use.
+
 #### `SENTRY_DSN` (optional)
 The [Sentry DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/) to use. Sentry reporting will be
 disabled if unset.
