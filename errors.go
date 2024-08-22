@@ -78,26 +78,12 @@ const (
 
 var (
 	ErrInvalidLTXFilename = Errorf(ErrorTypeValidation, "EBADPATH", "invalid ltx filename")
-	// ErrStoragePathInvalid = Errorf(ErrorTypeValidation, "EBADPATH", "invalid storage path")
-
-	// ErrRegionRequired = Errorf(ErrorTypeValidation, "EBADREGION", "region required")
 
 	ErrClusterRequired = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster required")
 	ErrClusterInvalid  = Errorf(ErrorTypeValidation, "EBADCLUSTER", "cluster invalid")
-	// ErrClusterExists   = Errorf(ErrorTypeConflict, "ECLUSTEREXIST", "cluster already exists")
-	// ErrClusterDeleted  = Errorf(ErrorTypeUnprocessable, "ECLUSTERDELETED", "cluster deleted")
-
-	// ErrClusterIDRequired = Errorf(ErrorTypeValidation, "EBADCLUSTERID", "cluster id required")
-	// ErrClusterIDInvalid  = Errorf(ErrorTypeUnprocessable, "EBADCLUSTERID", "cluster id invalid")
-	// ErrClusterIDNotFound = Errorf(ErrorTypeNotFound, "ENOCLUSTERID", "cluster id not found")
 
 	ErrDatabaseRequired = Errorf(ErrorTypeValidation, "EBADDB", "database required")
 	ErrDatabaseNotFound = Errorf(ErrorTypeNotFound, "ENODB", "database not found")
-
-	// ErrDatabaseEmpty    = Errorf(ErrorTypeNotFound, "EDBEMPTY", "database empty")
-
-	// ErrBucketNotFound = Errorf(ErrorTypeNotFound, "ENOBUCKET", "bucket not found")
-	// ErrRegionNotFound = Errorf(ErrorTypeNotFound, "ENOREGION", "region not found")
 
 	ErrMinTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "minimum transaction id required")
 	ErrMaxTXIDRequired = Errorf(ErrorTypeValidation, "EBADTXID", "maximum transaction id required")
@@ -107,20 +93,13 @@ var (
 	ErrCompactionLevelTooHigh   = Errorf(ErrorTypeValidation, "EBADLEVEL", "compaction level too high")
 
 	ErrTxNotAvailable = Errorf(ErrorTypeNotFound, "ENOTXID", "tx not available")
-	// ErrTxExists        = Errorf(ErrorTypeConflict, "ETXEXISTS", "tx already exists")
 	// ErrPgnoOutOfBounds = Errorf(ErrorTypeNotFound, "EPGNOOOB", "page number out of bounds")
 	ErrPageNotFound = Errorf(ErrorTypeNotFound, "ENOPAGE", "page not found")
 	// ErrInvalidPgno     = Errorf(ErrorTypeValidation, "EINVALIDPGNO", "invalid page number")
 
 	ErrTimestampNotAvailable = Errorf(ErrorTypeNotFound, "ENOTIMESTAMP", "timestamp not available")
 
-	// ErrClusterLimitReached = Errorf(ErrorTypeUnprocessable, "ECLUSTERLIMIT", "clusters limit reached")
-
 	ErrPageSizeMismatch = Errorf(ErrorTypeUnprocessable, "EBADHEADER", "page size mismatch")
-
-// ErrLeaseExists   = Errorf(ErrorTypeConflict, "ELEASEEXISTS", "lease already exists")
-// ErrLeaseNotFound = Errorf(ErrorTypeNotFound, "ENOLEASE", "lease not found")
-// ErrLeaseMismatch = Errorf(ErrorTypeUnprocessable, "ELEASEMISMATCH", "lease mismatch")
 )
 
 // IsApplicationError returns true if err is an lfsc.Error or ltx.PositionMismatchError.
