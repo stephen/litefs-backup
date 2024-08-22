@@ -9,10 +9,17 @@ import (
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/httputil"
 	"github.com/stephen/litefs-backup/store"
+	"github.com/stephen/litefs-backup/store/s3"
 )
 
 func Run(ctx context.Context, config *lfsb.Config) error {
+	storageClient := s3.NewStorageClient(config)
+	if err := storageClient.Open(); err != nil {
+		return err
+	}
+
 	store := store.NewStore(config)
+	store.RemoteClient = storageClient
 	if err := store.Open(); err != nil {
 		return err
 	}
