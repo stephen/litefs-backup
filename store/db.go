@@ -163,6 +163,32 @@ func findDBsByCluster(ctx context.Context, tx DBTX, cluster string) ([]*DB, erro
 	return a, rows.Close()
 }
 
+func findClusters(ctx context.Context, tx *sql.Tx) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT cluster
+		FROM databases
+		ORDER BY cluster
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var a []string
+	for rows.Next() {
+		var cluster string
+		if err := rows.Scan(&cluster); err != nil {
+			return nil, err
+		}
+		a = append(a, cluster)
+	}
+
+	if err := rows.Err(); err != nil {
+		return a, err
+	}
+	return a, rows.Close()
+}
+
 func writeSnapshotTo(ctx context.Context, tx DBTX, dbID int, txID ltx.TXID, w io.Writer) error {
 	enc := ltx.NewEncoder(w)
 

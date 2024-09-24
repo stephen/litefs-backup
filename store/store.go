@@ -322,13 +322,23 @@ func (s *Store) WriteTx(ctx context.Context, cluster, database string, r io.Read
 	}, nil
 }
 
-// FindDBByName returns a database entry by org/cluster/name.
+// FindDBByName returns a database entry by cluster/name.
 func (s *Store) FindDBByName(ctx context.Context, cluster, name string) (*DB, error) {
 	return findDBByName(ctx, s.db, cluster, name)
 }
 
 func (s *Store) FindDBsByCluster(ctx context.Context, cluster string) ([]*DB, error) {
 	return findDBsByCluster(ctx, s.db, cluster)
+}
+
+// FindClusters returns a list of all clusters in the store.
+func (s *Store) FindClusters(ctx context.Context) ([]string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return findClusters(ctx, tx)
 }
 
 // WriteLTXPageRangeFrom writes a compacted LTX file for all updated pages since minTXID inclusive.

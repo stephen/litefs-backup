@@ -488,6 +488,47 @@ func TestStore_FindDBsByCluster(t *testing.T) {
 	})
 }
 
+func TestStore_FindClusters(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db1", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 5},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db2", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 10},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "bkt2", "db3", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 10},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		clusters, err := s.FindClusters(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := len(clusters), 2; got != want {
+			t.Fatalf("n=%d, want %d", got, want)
+		} else if got, want := clusters[0], ("bkt"); got != want {
+			t.Fatalf("[0]=%#v, want %#v", got, want)
+		} else if got, want := clusters[1], ("bkt2"); got != want {
+			t.Fatalf("[1]=%#v, want %#v", got, want)
+		}
+	})
+}
+
 func TestStore_WriteSnapshotTo(t *testing.T) {
 	t.Run("Local", func(t *testing.T) {
 		s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
