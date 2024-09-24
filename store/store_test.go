@@ -1621,3 +1621,84 @@ func TestStore_ProcessCompactions(t *testing.T) {
 		}
 	})
 }
+
+func TestStore_DeleteCluster(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		remoteClient := s.RemoteClient
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, NodeID: 123},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd, NodeID: 456},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db2", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, NodeID: 123},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Compact to all levels & snapshot.
+		for _, lvl := range s.Levels[1:] {
+			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
+			t.Fatal(err)
+		}
+
+		// Delete cluster.
+		if err := s.DeleteCluster(context.Background(), "bkt"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Ensure the cluster cannot be found locally.
+		if a, err := s.FindClusters(context.Background()); err != nil {
+			t.Fatal(err)
+		} else if got, want := len(a), 0; got != want {
+			t.Fatalf("len=%v, want %v", got, want)
+		}
+
+		// Ensure no files exist on remote storage.
+		for _, lvl := range s.Levels {
+			if paths, err := store.FindStoragePaths(context.Background(), s.RemoteClient, "bkt", "db", lvl.Level, nil); err != nil {
+				t.Fatal(err)
+			} else if len(paths) != 0 {
+				t.Fatalf("unexpected paths found on level %d", lvl.Level)
+			}
+		}
+
+		if paths, err := store.FindStoragePaths(context.Background(), s.RemoteClient, "bkt", "db", lfsb.CompactionLevelSnapshot, nil); err != nil {
+			t.Fatal(err)
+		} else if len(paths) != 0 {
+			t.Fatal("unexpected snapshots found")
+		}
+
+		s = newStore(t, s.Path())
+		s.RemoteClient = remoteClient
+		if err := s.Open(context.TODO()); err != nil {
+			t.Fatal(err)
+		}
+		// t.Cleanup(func() { _ = s.Close() })
+
+		if a, err := s.FindClusters(context.Background()); err != nil {
+			t.Fatal(err)
+		} else if got, want := len(a), 0; got != want {
+			t.Fatalf("len=%v, want %v", got, want)
+		}
+	})
+}

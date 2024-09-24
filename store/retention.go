@@ -6,8 +6,68 @@ import (
 	"log/slog"
 	"time"
 
+	lfsb "github.com/stephen/litefs-backup"
+	"github.com/stephen/litefs-backup/db/sqliteutil"
 	"github.com/superfly/ltx"
 )
+
+func (s *Store) DeleteCluster(ctx context.Context, cluster string) error {
+	dbs, err := s.FindDBsByCluster(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("find dbs: %w", err)
+	}
+
+	slog.Info("deleting cluster",
+		slog.String("cluster", cluster),
+		slog.Int("dbs", len(dbs)))
+
+	for _, db := range dbs {
+		if err := s.DropDB(ctx, cluster, db.Name); err != nil {
+			return fmt.Errorf("drop db %s/%s: %w", cluster, db.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// DropDB hard deletes the database from the shard database and remote storage.
+func (s *Store) DropDB(ctx context.Context, cluster, database string) error {
+	for level := 1; level <= lfsb.CompactionLevelSnapshot; level++ {
+		paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, level, nil)
+		if err != nil {
+			return err
+		} else if len(paths) == 0 {
+			continue
+		}
+
+		slog.Info("deleting database remote storage files",
+			slog.String("cluster", cluster),
+			slog.String("db", database),
+			slog.Int("level", level),
+			slog.Int("n", len(paths)))
+
+		if err := s.RemoteClient.DeleteFiles(ctx, paths); err != nil {
+			return err
+		}
+	}
+
+	tx, err := sqliteutil.BeginImmediate(s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	db, err := findDBByName(ctx, tx, cluster, database)
+	if err != nil {
+		return err
+	}
+
+	if err := deleteDB(ctx, tx, db.ID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
 
 // EnforceRemoteRetention removes all files before a given TXID that are past the retention period.
 func (s *Store) EnforceRemoteRetention(ctx context.Context, cluster, database string, level int, maxTXID ltx.TXID) error {

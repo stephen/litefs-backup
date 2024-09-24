@@ -81,6 +81,9 @@ type Store struct {
 	SnapshotInterval time.Duration
 }
 
+// Path returns the root data directory.
+func (s *Store) Path() string { return s.path }
+
 func (s *Store) dbLogger(cluster, database string) *slog.Logger {
 	return slog.With(
 		slog.String("cluster", cluster),
