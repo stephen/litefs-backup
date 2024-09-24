@@ -32,7 +32,9 @@ func ConfigFromEnv() (*Config, error) {
 		return nil, Errorf(ErrorTypeValidation, "EINVALIDCONFIG", "LFSB_DATA_PATH must be set")
 	}
 
-	c.Address = os.Getenv("LFSB_BIND")
+	if env := os.Getenv("LFSB_BIND"); env != "" {
+		c.Address = env
+	}
 
 	if env := os.Getenv("BUCKET_NAME"); env != "" {
 		c.S3Bucket = env
@@ -46,5 +48,3 @@ func ConfigFromEnv() (*Config, error) {
 
 	return c, nil
 }
-
-var Version = os.Getenv("LFSB_VERSION")

@@ -24,7 +24,7 @@ func main() {
 func Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	slog.InfoContext(ctx, "running litefs-backup", slog.String("version", lfsb.Version))
+	slog.InfoContext(ctx, "running litefs-backup", slog.String("version", Version))
 
 	config, err := lfsb.ConfigFromEnv()
 	if err != nil {
@@ -32,7 +32,7 @@ func Run(ctx context.Context) error {
 	}
 
 	if dsn := config.SentryDSN; dsn != "" {
-		if err := sentry.Init(sentry.ClientOptions{Dsn: dsn, Debug: true}); err != nil {
+		if err := sentry.Init(sentry.ClientOptions{Dsn: dsn, Release: Version}); err != nil {
 			return fmt.Errorf("cannot init sentry: %w", err)
 		}
 		defer sentry.Flush(1 * time.Second)
@@ -47,3 +47,5 @@ func Run(ctx context.Context) error {
 	slog.Info("signal received, shutting down")
 	return nil
 }
+
+var Version = "dev"

@@ -1,9 +1,11 @@
-FROM golang:1.23.0 as builder
+FROM golang:1.23.1-alpine as builder
 
 WORKDIR /src/lfsb
 COPY . .
 
 ARG LFSB_VERSION
+
+RUN apk add --no-cache --update alpine-sdk
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
 	--mount=type=cache,target=/go/pkg \
@@ -11,15 +13,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
 	--mount=type=cache,target=/go/pkg \
-	go build -ldflags "-X main.Version=$LFSB_VERSION" -o /usr/local/bin/lfsb ./cmd/litefs-backup
+	go build -ldflags "-X 'main.Version=$LFSB_VERSION'" -o /usr/local/bin/lfsb ./cmd/litefs-backup
 
 FROM alpine
+
+RUN apk add --no-cache --update libgcc
 
 COPY --from=builder /usr/local/bin/lfsb /usr/local/bin/lfsb
 COPY --from=flyio/ltx:0.3 /usr/local/bin/ltx /usr/local/bin/ltx
 
-RUN apk add bash sqlite fuse3 curl ca-certificates
+ENTRYPOINT /usr/local/bin/lfsb
 
-ENTRYPOINT lfsb
-
-LABEL version=${LFSB_VERSION}
+LABEL version=$LFSB_VERSION
