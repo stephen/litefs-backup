@@ -36,7 +36,7 @@ type StorageClient struct {
 func NewStorageClient(config *lfsb.Config) *StorageClient {
 	return &StorageClient{
 		bucket:   config.S3Bucket,
-		endpoint: config.S3Bucket,
+		endpoint: config.S3Endpoint,
 	}
 }
 
