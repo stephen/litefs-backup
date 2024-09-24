@@ -1310,3 +1310,180 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}
 	})
 }
+
+func TestStore_CompactToSnapshot(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write a transaction.
+		spec1 := &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, spec1), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Compact up each of the levels
+		for _, lvl := range s.Levels[1:] {
+			path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("compacted to: %s", path)
+		}
+
+		// Compact to snapshot.
+		path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := path, (store.StoragePath{
+			Cluster:  "bkt",
+			Database: "db",
+			Level:    9,
+			MinTXID:  1,
+			MaxTXID:  1,
+			Metadata: store.StorageMetadata{
+				PageSize:          512,
+				Commit:            1,
+				Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+				PreApplyChecksum:  0,
+				PostApplyChecksum: 0xeb1a999231044ddd,
+			},
+		}); got != want {
+			t.Fatalf("path=%#v, want %#v", got, want)
+		}
+
+		// Verify that HWM is updated.
+		if db, err := s.FindDBByName(context.Background(), "bkt", "db"); err != nil {
+			t.Fatal(err)
+		} else if got, want := db.HWM, ltx.TXID(1); got != want {
+			t.Fatalf("HWM=%s, want %s", got, want)
+		}
+
+		// Write another transaction.
+		spec2 := &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 2, MinTXID: 2, MaxTXID: 2, PreApplyChecksum: 0xeb1a999231044ddd},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333},
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, spec2), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Compact up each of the levels
+		for _, lvl := range s.Levels[1:] {
+			path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("compacted to: %s", path)
+		}
+
+		// Compact to snapshot again.
+		path, err = s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := path, (store.StoragePath{
+			Cluster:  "bkt",
+			Database: "db",
+			Level:    9,
+			MinTXID:  1,
+			MaxTXID:  2,
+			Metadata: store.StorageMetadata{
+				PageSize:          512,
+				Commit:            2,
+				Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+				PreApplyChecksum:  0,
+				PostApplyChecksum: 0xad2dffe333333333,
+			},
+		}); got != want {
+			t.Fatalf("path=%#v, want %#v", got, want)
+		}
+
+		// Ensure compacted file exists and is correct.
+		var other ltx.FileSpec
+		if f, err := s.RemoteClient.OpenFile(context.Background(), path); err != nil {
+			t.Fatal(err)
+		} else if _, err := other.ReadFrom(f); err != nil {
+			t.Fatal(err)
+		} else if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		compareFileSpec(t, &other, &ltx.FileSpec{
+			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 2},
+			Pages: []ltx.PageSpec{
+				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
+			},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xb140bf35427d1cff},
+		})
+	})
+
+	t.Run("ErrNoCompaction/NoData", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		_, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		if lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("ErrNoCompaction/NoNewData", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		// Write a transaction.
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t,
+			&ltx.FileSpec{
+				Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1},
+				Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+				Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+			},
+		), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		// Compact up each of the levels
+		for _, lvl := range s.Levels[1:] {
+			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// Compact to snapshot.
+		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
+			t.Fatal(err)
+		}
+
+		// Compact up each of the levels
+		for _, lvl := range s.Levels[1:] {
+			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+				t.Fatal(err)
+			}
+		}
+
+		// Compacting again without new data should return a marker error.
+		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestStore_ProcessCompactions(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		spec1 := &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 1, NodeID: 123},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}
+		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, spec1), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := s.ProcessCompactions(context.TODO(), 1); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
