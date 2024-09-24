@@ -353,9 +353,9 @@ func (s *Store) compactDBToLevel(ctx context.Context, cluster, database string, 
 	}
 
 	// Delete all files that have been compacted and are older than our retention period.
-	// if err := s.EnforceRemoteRetention(ctx, cluster, database, srcLevel, paths[len(paths)-1].MinTXID); err != nil {
-	// 	return StoragePath{}, fmt.Errorf("enforce retention (L0): %w", err)
-	// }
+	if err := s.EnforceRemoteRetention(ctx, cluster, database, srcLevel, paths[len(paths)-1].MinTXID); err != nil {
+		return StoragePath{}, fmt.Errorf("enforce retention (L0): %w", err)
+	}
 
 	logger.Debug("level uploaded",
 		slog.Group("txid",

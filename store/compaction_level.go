@@ -75,7 +75,8 @@ type CompactionLevel struct {
 	// The frequency that the level is compacted from the previous level.
 	Interval time.Duration
 
-	// The duration that files in this level are stored.
+	// The duration that files in this level are stored. This should be
+	// set higher than the interval of level-1, with some safety margin.
 	Retention time.Duration
 }
 
