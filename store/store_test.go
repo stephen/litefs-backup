@@ -529,6 +529,44 @@ func TestStore_FindClusters(t *testing.T) {
 	})
 }
 
+func TestStore_FindDBByName(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+
+		if _, err := s.WriteTx(context.Background(), "bkt", "db1", ltxSpecReader(t, &ltx.FileSpec{
+			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 1, MaxTXID: 5},
+			Pages:   []ltx.PageSpec{{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)}},
+			Trailer: ltx.Trailer{PostApplyChecksum: 0xeb1a999231044ddd},
+		}), nil); err != nil {
+			t.Fatal(err)
+		}
+
+		db, err := s.FindDBByName(context.Background(), "bkt", "db1")
+		if err != nil {
+			t.Fatal(err)
+		} else if got, want := db, (&store.DB{
+			ID:                1,
+			Cluster:           "bkt",
+			Name:              "db1",
+			HWM:               0x0,
+			TXID:              0x5,
+			PostApplyChecksum: 0xeb1a999231044ddd,
+			PageSize:          0x200,
+			Commit:            0x1,
+			Timestamp:         time.Unix(0, 0).UTC(),
+		}); !reflect.DeepEqual(got, want) {
+			t.Fatalf("got=%#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("ErrDatabaseNotFound", func(t *testing.T) {
+		s := newOpenStore(t, t.TempDir())
+		if _, err := s.FindDBByName(context.Background(), "bkt", "db"); err != lfsb.ErrDatabaseNotFound {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestStore_WriteSnapshotTo(t *testing.T) {
 	t.Run("Local", func(t *testing.T) {
 		s := newOpenStore(t, filepath.Join(t.TempDir(), "00"))
