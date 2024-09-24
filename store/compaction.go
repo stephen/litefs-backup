@@ -19,6 +19,109 @@ const (
 	MaxCompactionFileN = 100
 )
 
+// monitorCompactionLevel periodically compacts the given level and updates the
+// last compaction time for the level. This is used by higher levels to know
+// how far in the future to compact to.
+func (s *Store) monitorCompactionLevel(ctx context.Context, level int) {
+	if level == 0 {
+		panic("cannot monitor compactions for level zero")
+	}
+
+	logger := slog.With(slog.Int("level", level))
+
+	nextCompactionAt := s.NextCompactionAt(level)
+	logger.Debug("waiting for initial compaction", slog.Time("timestamp", nextCompactionAt))
+	timer := time.NewTimer(time.Until(nextCompactionAt))
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			nextCompactionAt := s.NextCompactionAt(level)
+			logger.Debug("begin compaction", slog.Time("next", nextCompactionAt))
+			timer.Reset(time.Until(nextCompactionAt))
+		}
+
+		if err := s.ProcessCompactions(ctx, level); err != nil {
+			logger.Error("compaction failure", slog.Any("err", err))
+		}
+	}
+}
+
+// NextCompactionAt returns the time until the next compaction occurs.
+func (s *Store) NextCompactionAt(level int) time.Time {
+	switch level {
+	case lfsb.CompactionLevelSnapshot:
+		return s.Now().Truncate(s.SnapshotInterval).Add(s.SnapshotInterval)
+	default:
+		return s.Levels[level].NextCompactionAt(s.Now())
+	}
+}
+
+// ProcessCompactions attempts to process all compaction requests
+// at the given level. Any individual compaction failures are logged.
+func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
+	logger := slog.With(slog.Int("level", dstLevel))
+
+	// Acquire a local lock so we prevent simultaneuous compactions and also
+	// so we can check if we are currently compacting.
+	s.compactionMus[dstLevel].Lock()
+	defer s.compactionMus[dstLevel].Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	reqs, err := findCompactionRequestsByLevel(ctx, tx, dstLevel)
+	if err != nil {
+		return fmt.Errorf("find compaction requests: %w", err)
+	} else if len(reqs) == 0 {
+		return nil
+	}
+
+	// Iterate over pending requests and process them.
+	for _, req := range reqs {
+		_, err = s.CompactDBToLevel(ctx, req.Cluster, req.Database, req.Level)
+		if lfsb.ErrorCode(err) == lfsb.ENOCOMPACTION {
+			// It's okay. Fallthrough to marking this one complete.
+		} else if lfsb.ErrorCode(err) == lfsb.EPARTIALCOMPACTION {
+			logger.Error("partial level compaction occurred, retrying again",
+				slog.String("cluster", req.Cluster),
+				slog.String("database", req.Database))
+			continue
+		} else if err != nil {
+			logger.Error("level compaction failed",
+				slog.String("cluster", req.Cluster),
+				slog.String("database", req.Database),
+				slog.Any("err", err))
+			continue
+		}
+
+		db, err := findDBByName(ctx, tx, req.Cluster, req.Database)
+		if err != nil {
+			return err
+		}
+
+		if err := markCompactionRequestComplete(ctx, tx, db.ID, req.Level, req.IdempotencyKey); err != nil {
+			logger.Error("cannot mark compaction request complete",
+				slog.String("cluster", req.Cluster),
+				slog.String("database", req.Database),
+				slog.Any("err", err))
+			continue
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // CompactDBToLevel compacts all transaction files from the next lower level since
 // the last TXID in the level to be compacted. This ensures that higher level
 // compactions line up on TXID with lower levels and makes it easier to compute

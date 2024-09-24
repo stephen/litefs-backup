@@ -22,7 +22,7 @@ func Run(ctx context.Context, config *lfsb.Config) (*Server, error) {
 
 	store := store.NewStore(config)
 	store.RemoteClient = storageClient
-	if err := store.Open(); err != nil {
+	if err := store.Open(ctx); err != nil {
 		return nil, err
 	}
 

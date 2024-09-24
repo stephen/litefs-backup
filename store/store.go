@@ -12,10 +12,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
 	_ "github.com/amacneil/dbmate/v2/pkg/driver/sqlite"
+	"github.com/getsentry/sentry-go"
 
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/db/migrations"
@@ -41,9 +43,16 @@ type WriteTxPage struct {
 
 func NewStore(config *lfsb.Config) *Store {
 	return &Store{
-		config: config,
-		path:   config.Path,
-		Levels: []*CompactionLevel{{Level: 0}},
+		config:            config,
+		path:              config.Path,
+		CompactionEnabled: true,
+		SnapshotInterval:  24 * time.Hour,
+		Levels: []*CompactionLevel{
+			{Level: 0},
+			{Level: 1, Interval: 10 * time.Second},
+			{Level: 2, Interval: 5 * time.Minute},
+			{Level: 3, Interval: 1 * time.Hour},
+		},
 		Now: func() time.Time {
 			return time.Now()
 		},
@@ -51,8 +60,9 @@ func NewStore(config *lfsb.Config) *Store {
 }
 
 type Store struct {
-	config *lfsb.Config
-	db     *sql.DB
+	config        *lfsb.Config
+	db            *sql.DB
+	compactionMus [lfsb.CompactionLevelSnapshot + 1]sync.Mutex
 
 	// path is the directory where we store our data.
 	path string
@@ -62,6 +72,13 @@ type Store struct {
 	Levels CompactionLevels
 
 	Now func() time.Time
+
+	// If true, compactions are run in background goroutines.
+	// This is typically disabled for testing purposes.
+	CompactionEnabled bool
+
+	// Time between snapshots
+	SnapshotInterval time.Duration
 }
 
 func (s *Store) dbLogger(cluster, database string) *slog.Logger {
@@ -71,7 +88,7 @@ func (s *Store) dbLogger(cluster, database string) *slog.Logger {
 	)
 }
 
-func (s *Store) Open() error {
+func (s *Store) Open(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
@@ -100,6 +117,31 @@ func (s *Store) Open() error {
 
 	if err := dbm.CreateAndMigrate(); err != nil {
 		return err
+	}
+
+	if s.CompactionEnabled {
+		// Begin monitoring at each compaction level.
+		for _, lvl := range s.Levels {
+			lvl := lvl
+			if lvl.Interval == 0 {
+				continue
+			}
+
+			// XXX: wait groups.
+			go (func() error {
+				defer sentry.Recover()
+				slog.InfoContext(ctx, "monitoring compaction", slog.Int("level", lvl.Level), slog.Duration("interval", lvl.Interval), slog.Duration("retention", lvl.Retention))
+				s.monitorCompactionLevel(ctx, lvl.Level)
+				return nil
+			})()
+		}
+
+		// Monitor snapshot compactions.
+		go (func() error {
+			defer sentry.Recover()
+			s.monitorCompactionLevel(ctx, lfsb.CompactionLevelSnapshot)
+			return nil
+		})()
 	}
 
 	return nil

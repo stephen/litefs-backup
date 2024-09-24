@@ -25,6 +25,7 @@ func newStore(tb testing.TB, path string) *store.Store {
 	s := store.NewStore(&lfsb.Config{
 		Path: tb.TempDir(),
 	})
+	s.CompactionEnabled = false
 	s.RemoteClient = NewFileStorageClient(filepath.Dir(path))
 
 	s.Levels = []*store.CompactionLevel{
@@ -43,7 +44,7 @@ func newOpenStore(tb testing.TB, path string, opts ...func(*store.Store)) *store
 	for _, opt := range opts {
 		opt(s)
 	}
-	if err := s.Open(); err != nil {
+	if err := s.Open(context.TODO()); err != nil {
 		tb.Fatal(err)
 	}
 
