@@ -89,6 +89,16 @@ func (s *Store) dbLogger(cluster, database string) *slog.Logger {
 }
 
 func (s *Store) Open(ctx context.Context) error {
+	if s.RemoteClient == nil {
+		return fmt.Errorf("remote storage client required")
+	}
+	if s.SnapshotInterval <= 0 {
+		return fmt.Errorf("snapshot interval required")
+	}
+	if err := s.Levels.Validate(); err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}

@@ -21,6 +21,61 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func TestStore_Open(t *testing.T) {
+	t.Run("ErrRemoteStorageClientRequired", func(t *testing.T) {
+		s := newStore(t, t.TempDir())
+		// t.Cleanup(func() { _ = s.Close() })
+		s.RemoteClient = nil
+		if err := s.Open(context.TODO()); err == nil || err.Error() != `remote storage client required` {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	})
+
+	t.Run("ErrCompactionLevelsRequired", func(t *testing.T) {
+		s := newStore(t, t.TempDir())
+		// t.Cleanup(func() { _ = s.Close() })
+		s.Levels = nil
+		if err := s.Open(context.TODO()); err == nil || err.Error() != `at least one compaction level is required` {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	})
+	t.Run("ErrCompactionLevelsOutOfOrder", func(t *testing.T) {
+		s := newStore(t, t.TempDir())
+		// t.Cleanup(func() { _ = s.Close() })
+		s.Levels = []*store.CompactionLevel{{Level: 5}}
+		if err := s.Open(context.TODO()); err == nil || err.Error() != `compaction level number out of order: 5, expected 0` {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	})
+	t.Run("ErrCompactionLevelTooHigh", func(t *testing.T) {
+		s := newStore(t, t.TempDir())
+		// t.Cleanup(func() { _ = s.Close() })
+		s.Levels = []*store.CompactionLevel{
+			{Level: 0},
+			{Level: 1, Interval: 1 * time.Second},
+			{Level: 2, Interval: 2 * time.Second},
+			{Level: 3, Interval: 3 * time.Second},
+			{Level: 4, Interval: 4 * time.Second},
+			{Level: 5, Interval: 5 * time.Second},
+			{Level: 6, Interval: 6 * time.Second},
+			{Level: 7, Interval: 7 * time.Second},
+			{Level: 8, Interval: 8 * time.Second},
+			{Level: 9, Interval: 9 * time.Second},
+		}
+		if err := s.Open(context.TODO()); err == nil || err.Error() != `compaction level cannot exceed 8` {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	})
+	t.Run("ErrCompactionIntervalLevelZero", func(t *testing.T) {
+		s := newStore(t, t.TempDir())
+		// t.Cleanup(func() { _ = s.Close() })
+		s.Levels = []*store.CompactionLevel{{Level: 0, Interval: 1 * time.Second}}
+		if err := s.Open(context.TODO()); err == nil || err.Error() != `cannot set interval on compaction level zero` {
+			t.Fatalf("unexpected error: %s", err)
+		}
+	})
+}
+
 func TestStore_WriteTx(t *testing.T) {
 	t.Run("OK", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
