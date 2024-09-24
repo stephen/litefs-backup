@@ -38,14 +38,15 @@ func Run(ctx context.Context) error {
 		defer sentry.Flush(1 * time.Second)
 	}
 
-	if err := server.Run(ctx, config); err != nil {
+	server, err := server.Run(ctx, config)
+	if err != nil {
 		return err
 	}
 
 	slog.Info("waiting for signal or subprocess to exit")
 	<-ctx.Done()
 	slog.Info("signal received, shutting down")
-	return nil
+	return server.Close()
 }
 
 var Version = "dev"
