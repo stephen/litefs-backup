@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -70,7 +71,7 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 	s.compactionMus[dstLevel].Lock()
 	defer s.compactionMus[dstLevel].Unlock()
 
-	tx, err := s.db.Begin()
+	tx, err := sqliteutil.BeginImmediate(s.db)
 	if err != nil {
 		return err
 	}
@@ -85,7 +86,7 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 
 	// Iterate over pending requests and process them.
 	for _, req := range reqs {
-		_, err = s.CompactDBToLevel(ctx, req.Cluster, req.Database, req.Level)
+		_, err = s.CompactDBToLevel(ctx, tx, req.Cluster, req.Database, req.Level)
 		if lfsb.ErrorCode(err) == lfsb.ENOCOMPACTION {
 			// It's okay. Fallthrough to marking this one complete.
 		} else if lfsb.ErrorCode(err) == lfsb.EPARTIALCOMPACTION {
@@ -130,7 +131,38 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 // Returns the path of the newly compacted storage path.
 // Returns ENOCOMPACTION if no compaction occurred.
 // Returns EPARTIALCOMPACTION if there were too many files to compact.
-func (s *Store) CompactDBToLevel(ctx context.Context, cluster, database string, dstLevel int) (StoragePath, error) {
+func (s *Store) CompactDBToLevel(ctx context.Context, callerTx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
+	var newTx *sql.Tx
+	if callerTx == nil {
+		tx, err := sqliteutil.BeginImmediate(s.db)
+		if err != nil {
+			return StoragePath{}, err
+		}
+
+		defer tx.Rollback()
+		newTx = tx
+	}
+
+	tx := callerTx
+	if tx == nil {
+		tx = newTx
+	}
+	path, err := s.compactDBToLevelWithTx(ctx, tx, cluster, database, dstLevel)
+	if err != nil {
+		return StoragePath{}, err
+	}
+
+	// If we started the tx, then close it up after.
+	if newTx != nil {
+		if err := newTx.Commit(); err != nil {
+			return StoragePath{}, err
+		}
+	}
+
+	return path, nil
+}
+
+func (s *Store) compactDBToLevelWithTx(ctx context.Context, tx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
 	// Verify that we are compacting to a level that exists and is not L0.
 	// Level 0 is the raw LTX files that we receive from the client.
 	if dstLevel == 0 {
@@ -141,16 +173,16 @@ func (s *Store) CompactDBToLevel(ctx context.Context, cluster, database string, 
 
 	switch dstLevel {
 	case 1:
-		return s.compactDBToL1(ctx, cluster, database)
+		return s.compactDBToL1(ctx, tx, cluster, database)
 	case lfsb.CompactionLevelSnapshot:
 		return s.compactDBToSnapshot(ctx, cluster, database)
 	default:
-		return s.compactDBToLevel(ctx, cluster, database, dstLevel)
+		return s.compactDBToLevel(ctx, tx, cluster, database, dstLevel)
 	}
 }
 
 // compactDBToL1 compacts from the L0 shard database into L1 in remote storage.
-func (s *Store) compactDBToL1(ctx context.Context, cluster, database string) (StoragePath, error) {
+func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database string) (StoragePath, error) {
 	logger := s.dbLogger(cluster, database).With(
 		slog.Group("level", slog.Int("src", 0), slog.Int("dst", 1)))
 
@@ -198,12 +230,6 @@ func (s *Store) compactDBToL1(ctx context.Context, cluster, database string) (St
 	now := s.Now()
 	retention := s.Levels[0].Retention
 
-	tx, err := sqliteutil.BeginImmediate(s.db)
-	if err != nil {
-		return StoragePath{}, err
-	}
-	defer tx.Rollback()
-
 	db, err := findDBByName(ctx, tx, cluster, database)
 	if err != nil {
 		return StoragePath{}, err
@@ -234,17 +260,13 @@ func (s *Store) compactDBToL1(ctx context.Context, cluster, database string) (St
 		return StoragePath{}, fmt.Errorf("increase hwm: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return StoragePath{}, err
-	}
-
 	logger.Debug("L0 pages compacted", slog.Duration("elapsed", time.Since(startTime)))
 
 	return outPath, nil
 }
 
 // compactDBToLevel handles any compactions sourced from L1 or higher.
-func (s *Store) compactDBToLevel(ctx context.Context, cluster, database string, dstLevel int) (StoragePath, error) {
+func (s *Store) compactDBToLevel(ctx context.Context, tx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
 	if dstLevel < 2 {
 		return StoragePath{}, fmt.Errorf("invalid destination level")
 	}
@@ -368,12 +390,6 @@ func (s *Store) compactDBToLevel(ctx context.Context, cluster, database string, 
 	// Mark next level as requiring compaction.
 	nextLevel := s.Levels.NextLevel(dstLevel)
 	if nextLevel != -1 {
-		tx, err := sqliteutil.BeginImmediate(s.db)
-		if err != nil {
-			return StoragePath{}, err
-		}
-		defer tx.Rollback()
-
 		db, err := findDBByName(ctx, tx, cluster, database)
 		if err != nil {
 			return StoragePath{}, err
@@ -381,10 +397,6 @@ func (s *Store) compactDBToLevel(ctx context.Context, cluster, database string, 
 
 		if err := requestCompaction(ctx, tx, db.ID, nextLevel, rand.Int()); err != nil {
 			return StoragePath{}, fmt.Errorf("request compaction: %w", err)
-		}
-
-		if err := tx.Commit(); err != nil {
-			return StoragePath{}, err
 		}
 	}
 

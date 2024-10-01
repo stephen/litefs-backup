@@ -126,7 +126,7 @@ func makeSQLiteDB(tb testing.TB, pageSize, rows int) []byte {
 func compactUpToLevel(tb testing.TB, s *store.Store, cluster, database string, level int) {
 	tb.Helper()
 	for lvl := 1; lvl <= level; lvl += 1 {
-		if _, err := s.CompactDBToLevel(context.Background(), cluster, database, lvl); err != nil && lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, cluster, database, lvl); err != nil && lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
 			tb.Fatal(err)
 		}
 	}

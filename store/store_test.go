@@ -329,7 +329,7 @@ func TestStore_WriteTx(t *testing.T) {
 		defer once.Do(func() { rr.Resume(nil) })
 
 		// Run compaction and ensure that we are not using the partial transaction.
-		path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", 1)
+		path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", 1)
 		if err != nil {
 			t.Fatal(err)
 		} else if got, want := path.MaxTXID, lastCommittedPos.TXID; got != want {
@@ -346,7 +346,7 @@ func TestStore_WriteTx(t *testing.T) {
 		time.Sleep(time.Second)
 
 		// Compact again and ensure last txn is included.
-		path, err = s.CompactDBToLevel(context.Background(), "bkt", "db", 1)
+		path, err = s.CompactDBToLevel(context.Background(), nil, "bkt", "db", 1)
 		if err != nil {
 			t.Fatal(err)
 		} else if got, want := path.MaxTXID, b.Pos().TXID; got != want {
@@ -690,7 +690,7 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -704,7 +704,7 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -756,7 +756,7 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -770,7 +770,7 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -841,7 +841,7 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), "cl", "db", 1); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
 			t.Fatal(err)
 		}
 
@@ -1461,7 +1461,7 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level)
+			path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1469,7 +1469,7 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 		}
 
 		// Compact to snapshot.
-		path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
 		if err != nil {
 			t.Fatal(err)
 		} else if got, want := path, (store.StoragePath{
@@ -1508,7 +1508,7 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			path, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level)
+			path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1516,7 +1516,7 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 		}
 
 		// Compact to snapshot again.
-		path, err = s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		path, err = s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
 		if err != nil {
 			t.Fatal(err)
 		} else if got, want := path, (store.StoragePath{
@@ -1558,7 +1558,7 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 	t.Run("ErrNoCompaction/NoData", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
-		_, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot)
+		_, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
 		if lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
 			t.Fatal(err)
 		}
@@ -1580,25 +1580,25 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); err != nil {
+			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); err != nil {
 				t.Fatal(err)
 			}
 		}
 
 		// Compact to snapshot.
-		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
 			t.Fatal(err)
 		}
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
 				t.Fatal(err)
 			}
 		}
 
 		// Compacting again without new data should return a marker error.
-		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -1653,11 +1653,11 @@ func TestStore_DeleteCluster(t *testing.T) {
 
 		// Compact to all levels & snapshot.
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lvl.Level); err != nil {
+			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); err != nil {
 				t.Fatal(err)
 			}
 		}
-		if _, err := s.CompactDBToLevel(context.Background(), "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
+		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
 			t.Fatal(err)
 		}
 
