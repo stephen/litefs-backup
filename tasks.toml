@@ -19,9 +19,14 @@
   type = "short"
   dependencies = ["minio"]
   cmd = "go test ./store/s3 -integration"
-  env = { AWS_REGION = "us-east-1", AWS_ACCESS_KEY = "minioadmin", AWS_SECRET_KEY = "minioadmin", LFSB_S3_ENDPOINT="http://127.0.0.1:9000" }
+
+  env = { AWS_REGION = "us-east-1", AWS_ACCESS_KEY = "minioadmin", AWS_SECRET_KEY = "minioadmin", AWS_ENDPOINT_URL_S3="http://127.0.0.1:9000" }
 
 [[task]]
   id = "minio"
   type = "long"
-  cmd = "minio server ./data/minio"
+  cmd = """
+    mc alias set minio http://127.0.0.1:9000
+    mc mb data/minio/lfsb-integration-test
+    minio server ./data/minio
+  """

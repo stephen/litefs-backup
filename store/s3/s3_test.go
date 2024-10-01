@@ -18,7 +18,7 @@ import (
 var integration = flag.Bool("integration", false, "run integration tests")
 
 const (
-	Bucket = "lfsc-integration-test"
+	Bucket = "lfsb-integration-test"
 )
 
 func TestStorageClient_OpenFile(t *testing.T) {
@@ -269,7 +269,7 @@ func newStorageClient(tb testing.TB) *s3.StorageClient {
 	if !*integration {
 		tb.Skip("integration tests not enabled, skipping")
 	}
-	return s3.NewStorageClient(&lfsb.Config{S3Bucket: Bucket})
+	return s3.NewStorageClient(&lfsb.Config{S3Bucket: Bucket, S3Endpoint: os.Getenv("AWS_ENDPOINT_URL_S3")})
 }
 
 func newOpenStorageClient(tb testing.TB) *s3.StorageClient {
