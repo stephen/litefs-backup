@@ -462,7 +462,7 @@ func (s *Store) RestoreToTx(ctx context.Context, cluster, database string, txID 
 		return 0, err
 	}
 
-	logger.Info("database restored", slog.Any("tx", txID))
+	logger.Info("database restored", slog.Any("to", txID), slog.Any("newPos", newPos))
 
 	return newPos.TXID, nil
 }
