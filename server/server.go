@@ -59,6 +59,7 @@ func (s *Server) Open() error {
 		r.Get("/restore/check", httputil.APIHandler(s.handleGetRestoreCheck))
 		r.Post("/upload", httputil.APIHandler(s.handlePostUpload))
 		r.Get("/info", httputil.APIHandler(s.handleGetDBInfo))
+		r.Delete("/", httputil.APIHandler(s.handleDeleteDB))
 	})
 
 	r.Get("/pos", httputil.APIHandler(s.handleGetPos))

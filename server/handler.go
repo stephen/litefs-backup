@@ -249,3 +249,21 @@ type getDBInfoResponse struct {
 	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
 	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
 }
+
+func (s *Server) handleDeleteDB(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	q := r.URL.Query()
+	cluster := httputil.ClusterNameFromContext(ctx)
+	if err := lfsb.ValidateClusterName(cluster); err != nil {
+		return err
+	}
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+	if _, err := s.store.FindDBByName(ctx, cluster, name); err != nil {
+		return err
+	}
+
+	return s.store.DropDB(ctx, cluster, name)
+}
