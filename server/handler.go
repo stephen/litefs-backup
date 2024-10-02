@@ -145,3 +145,38 @@ func (s *Server) handlePostUpload(ctx context.Context, w http.ResponseWriter, r 
 type postUploadResponse struct {
 	TXID ltx.TXID `json:"txID"`
 }
+
+func (s *Server) handleGetDBInfo(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
+	q := r.URL.Query()
+	cluster := httputil.ClusterNameFromContext(ctx)
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+	_, err = s.store.FindDBByName(ctx, cluster, name)
+	if err != nil {
+		return err
+	}
+
+	info, err := s.store.Info(ctx, cluster, name)
+	if err != nil {
+		return err
+	}
+
+	resp := getDBInfoResponse{Name: name}
+	if !info.MinRestorableTimestamp.IsZero() {
+		resp.MinTimestamp = &info.MinRestorableTimestamp
+	}
+	if !info.MaxRestorableTimestamp.IsZero() {
+		resp.MaxTimestamp = &info.MaxRestorableTimestamp
+	}
+
+	return httputil.RenderResponse(w, resp)
+}
+
+type getDBInfoResponse struct {
+	Name         string     `json:"name"`
+	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
+	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
+}
