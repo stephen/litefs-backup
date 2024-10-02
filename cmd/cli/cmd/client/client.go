@@ -118,6 +118,14 @@ type createClusterInput struct {
 	Region  string `json:"region"`
 }
 
+// DeleteDB permanently deletes a db from a cluster.
+// An org-scoped authentication token with write permissions is required.
+func (c *Client) DeleteDB(ctx context.Context, database string) error {
+	q := make(url.Values)
+	q.Set("db", database)
+	return c.Do(ctx, "DELETE", url.URL{Path: "/db", RawQuery: q.Encode()}, nil, nil)
+}
+
 // DeleteCluster permanently deletes an existing cluster.
 // An org-scoped authentication token with write permissions is required.
 func (c *Client) DeleteCluster(ctx context.Context, name string) error {
