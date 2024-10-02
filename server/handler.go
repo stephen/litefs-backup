@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"time"
 
 	lfsb "github.com/stephen/litefs-backup"
 	"github.com/stephen/litefs-backup/httputil"
+	"github.com/stephen/litefs-backup/store"
 	"github.com/superfly/ltx"
 )
 
@@ -74,6 +76,73 @@ func (s *Server) handleGetDBSnapshot(ctx context.Context, w http.ResponseWriter,
 	default:
 		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADFORMAT", "unsupported snapshot format")
 	}
+}
+
+func (s *Server) handleGetRestoreCheck(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
+	q := r.URL.Query()
+	cluster := httputil.ClusterNameFromContext(ctx)
+
+	name := q.Get("db")
+	if err := lfsb.ValidateDatabase(name); err != nil {
+		return err
+	}
+
+	var txID ltx.TXID
+	if txIDStr := q.Get("txid"); txIDStr != "" {
+		if txID, err = ltx.ParseTXID(q.Get("txid")); err != nil {
+			return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "invalid txid")
+		}
+	}
+
+	var timestamp time.Time
+	if timestampStr := q.Get("timestamp"); timestampStr != "" {
+		if timestamp, err = ltx.ParseTimestamp(timestampStr); err != nil {
+			return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "invalid timestamp")
+		}
+	}
+
+	if txID != 0 && !timestamp.IsZero() {
+		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "can't specify both 'txid' and 'timestamp'")
+	} else if txID == 0 && timestamp.IsZero() {
+		return lfsb.Errorf(lfsb.ErrorTypeValidation, "EBADINPUT", "'txid' or 'timestamp' required")
+	}
+
+	var path store.StoragePath
+	if !timestamp.IsZero() {
+		foundPath, err := s.store.FindStoragePathByTimestamp(ctx, cluster, name, timestamp)
+		if err != nil {
+			return err
+		}
+		path = foundPath
+		txID = path.MaxTXID
+	} else {
+		paths, err := store.CalcSnapshotPlan(ctx, s.store.RemoteClient, cluster, name, txID)
+		if err != nil {
+			return err
+		}
+		path = paths[len(paths)-1]
+	}
+
+	if path.IsZero() {
+		return lfsb.ErrTxNotAvailable
+	}
+
+	md, err := s.store.RemoteClient.Metadata(ctx, path)
+	if err != nil {
+		return err
+	}
+
+	// Attempt to write out the snapshot to verify this timestamp/txid is ok.
+	if err := s.store.WriteSnapshotTo(ctx, cluster, name, txID, io.Discard); err != nil {
+		return err
+	}
+
+	return httputil.RenderResponse(w, getRestoreCheckResponse{TXID: txID, Timestamp: md.Timestamp})
+}
+
+type getRestoreCheckResponse struct {
+	Timestamp time.Time `json:"timestamp"`
+	TXID      ltx.TXID  `json:"txID"`
 }
 
 func (s *Server) handlePostRestore(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {

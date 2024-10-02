@@ -383,6 +383,14 @@ func (s *Store) WriteLTXPageRangeFrom(ctx context.Context, cluster, database str
 
 // FindTXIDByTimestamp returns the TX closest to the given timestamp.
 func (s *Store) FindTXIDByTimestamp(ctx context.Context, cluster, database string, timestamp time.Time) (ltx.TXID, error) {
+	path, err := s.FindStoragePathByTimestamp(ctx, cluster, database, timestamp)
+	if err != nil {
+		return 0, err
+	}
+	return path.MaxTXID, nil
+}
+
+func (s *Store) FindStoragePathByTimestamp(ctx context.Context, cluster, database string, timestamp time.Time) (StoragePath, error) {
 	// Start at level 2, which is relatively low granularity and long retention and go
 	// upper looking for older data.
 	for level := TargetRestoreLevel; s.Levels.IsValidLevel(level); level = s.Levels.NextLevel(level) {
@@ -398,15 +406,16 @@ func (s *Store) FindTXIDByTimestamp(ctx context.Context, cluster, database strin
 			return false, ErrStopIter
 		})
 		if err != nil {
-			return 0, err
+			return StoragePath{}, err
 		}
 
 		if len(paths) > 0 {
-			return paths[len(paths)-1].MaxTXID, nil
+			return paths[len(paths)-1], nil
 		}
 	}
 
-	return 0, lfsb.ErrTimestampNotAvailable
+	return StoragePath{}, lfsb.ErrTimestampNotAvailable
+
 }
 
 // RestoreToTx restores the database to the give TX ID.
