@@ -339,3 +339,35 @@ func (r *errorResponse) err() error {
 func isSuccessfulStatusCode(code int) bool {
 	return code >= 200 && code < 300
 }
+
+type DBInfoOutput struct {
+	Name         string     `json:"name"`
+	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
+	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
+}
+
+// Regions returns a list of available LiteFS Cloud regions.
+func (c *Client) Info(ctx context.Context, database string) (*DBInfoOutput, error) {
+	q := make(url.Values)
+	q.Set("db", database)
+	req, err := c.newRequest(ctx, "GET", url.URL{Path: "/db/info", RawQuery: q.Encode()}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := decodeResponseError(resp); err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+
+	var output DBInfoOutput
+	if err := json.NewDecoder(resp.Body).Decode(&output); err != nil {
+		return nil, fmt.Errorf("cannot parse response body (%d): %w", resp.StatusCode, err)
+	}
+	return &output, nil
+}

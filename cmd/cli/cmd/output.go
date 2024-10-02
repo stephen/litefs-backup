@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/logrusorgru/aurora"
 	"github.com/olekukonko/tablewriter"
 )
 
@@ -47,6 +48,31 @@ func Table(w io.Writer, rows [][]string, cols ...string) error {
 	table.Render()
 
 	fmt.Fprintln(w)
+
+	return nil
+}
+
+func VerticalTable(w io.Writer, title string, objects [][]string, cols ...string) error {
+	if title != "" {
+		fmt.Fprintln(w, aurora.Bold(title))
+	}
+
+	table := tablewriter.NewWriter(w)
+	table.SetBorder(false)
+	table.SetAutoWrapText(false)
+	table.SetColumnSeparator("=")
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+
+	for _, obj := range objects {
+		for i, col := range cols {
+			table.Append([]string{col, obj[i]})
+		}
+
+		table.Render()
+
+		fmt.Fprintln(w)
+	}
 
 	return nil
 }
