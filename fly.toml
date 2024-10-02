@@ -1,0 +1,22 @@
+[build]
+  image = 'stpnw/litefs-backup:latest'
+
+[env]
+  LFSB_DATA_PATH = '/data/'
+
+[[mounts]]
+  source = 'lfsb'
+  destination = '/data'
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 2200
+  auto_stop_machines = 'off'
+  processes = ['app']
+
+  [[services.ports]]
+    port = 2200
+    handlers = ['http']
+
+[[vm]]
+  size = 'shared-cpu-1x'
