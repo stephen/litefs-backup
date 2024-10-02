@@ -1,6 +1,11 @@
-# litefs-backup
+# litefs-backup (lfsb)
 
-A drop-in replacement backup service for the deprecated [LiteFS Cloud](https://fly.io/blog/litefs-cloud/).
+A drop-in replacement for the deprecated [LiteFS Cloud](https://fly.io/blog/litefs-cloud/) backup service.
+
+Lfsb will back your LiteFS cluster up to any s3-compatible storage provider.
+
+## Limitations
+- Lfsb does not do any authentication and assumes access across a private network.
 
 ## Development
 
@@ -26,7 +31,7 @@ dbmate [up, down, new]
 Configuration is done through environment variables
 
 #### `LFSB_DATA_PATH` (required)
-The directory where litefs-backup will keep its local data store. This should
+The directory where lfsb will keep its local data store. This should
 be a persistent, durable location.
 
 #### `LFSB_BIND` (optional)
