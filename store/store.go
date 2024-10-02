@@ -26,9 +26,17 @@ import (
 )
 
 const (
-	// TargetRestoreLevel is the default compaction level used to find an LTX file
-	// suitable for restore to specific timestamp
-	TargetRestoreLevel = 2
+	// CompactionLevelRestoreTarget is the default compaction level used to find an LTX file
+	// suitable for restore to specific timestamp.
+	//
+	// This value corresponds with the granularity that restore requests can see.
+	// Levels below CompactionLevelRestoreTarget effectively
+	// become used for better write durability (writes after the L1
+	// 10s window will be in durable storage) instead of for restorability.
+	//
+	// We choose a restore target higher than L1 to improve restore speed and usability,
+	// since pulling many small L1 (default 10s granularity) files may take a while.
+	CompactionLevelRestoreTarget = 2
 )
 
 type WriteTxOptions struct {
@@ -393,7 +401,7 @@ func (s *Store) FindTXIDByTimestamp(ctx context.Context, cluster, database strin
 func (s *Store) FindStoragePathByTimestamp(ctx context.Context, cluster, database string, timestamp time.Time) (StoragePath, error) {
 	// Start at level 2, which is relatively low granularity and long retention and go
 	// upper looking for older data.
-	for level := TargetRestoreLevel; s.Levels.IsValidLevel(level); level = s.Levels.NextLevel(level) {
+	for level := CompactionLevelRestoreTarget; s.Levels.IsValidLevel(level); level = s.Levels.NextLevel(level) {
 		paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, level, func(p StoragePath) (bool, error) {
 			md, err := s.RemoteClient.Metadata(ctx, p)
 			if err != nil {
@@ -584,7 +592,7 @@ func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, er
 	info := &DBInfo{Name: database}
 
 	// We are restoring from level 2, so for now just list min/max L2 timestamps.
-	paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, TargetRestoreLevel, nil)
+	paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, CompactionLevelRestoreTarget, nil)
 	if err != nil {
 		return nil, err
 	} else if len(paths) == 0 {

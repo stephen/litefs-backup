@@ -1360,7 +1360,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget)
 
 		// Write a second transaction.
 		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
@@ -1370,7 +1370,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget)
 
 		txid, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(1*time.Minute))
 		if err != nil {
@@ -1393,7 +1393,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel+1)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget+1)
 
 		// Write a second transaction.
 		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
@@ -1403,7 +1403,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget)
 
 		txid, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(1*time.Minute))
 		if err != nil {
@@ -1426,7 +1426,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget)
 
 		// Write a second transaction.
 		if _, err := s.WriteTx(context.Background(), "bkt", "db", ltxSpecReader(t, &ltx.FileSpec{
@@ -1436,7 +1436,7 @@ func TestStore_FindTXIDByTimestamp(t *testing.T) {
 		}), nil); err != nil {
 			t.Fatal(err)
 		}
-		compactUpToLevel(t, s, "bkt", "db", store.TargetRestoreLevel-1)
+		compactUpToLevel(t, s, "bkt", "db", store.CompactionLevelRestoreTarget-1)
 
 		_, err := s.FindTXIDByTimestamp(context.Background(), "bkt", "db", ts.Add(-1*time.Minute))
 		if want, got := lfsb.ErrTimestampNotAvailable, err; want != got {

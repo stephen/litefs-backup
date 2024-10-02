@@ -67,7 +67,13 @@ func (a CompactionLevels) NextLevel(level int) int {
 	return level + 1
 }
 
-// CompactionLevel represents a compaction level.
+// CompactionLevel represents a compaction level. You may want to tweak
+// these values alongside CompactionLevelRestoreTarget, CompactionLevelSnapshot,
+// and CompactionLevelMax.
+//
+// Level 0 always refers to the on-disk sqlite db.
+// Level 1 through CompactionLevelMax are available for arbitrary configuration.
+// Level 9 always refers to the full database snapshot level.
 type CompactionLevel struct {
 	// The numeric level. Must match the index in the list of levels.
 	Level int
