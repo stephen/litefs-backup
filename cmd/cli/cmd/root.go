@@ -9,9 +9,10 @@ import (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "lfsb",
-	Short: "litefs-backup administration cli",
-	Long:  `litefs-backup is a cli for administrating a LiteFS backup server.`,
+	Use:          "lfsb",
+	Short:        "litefs-backup administration cli",
+	Long:         `litefs-backup is a cli for administrating a LiteFS backup server.`,
+	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cluster, _ := cmd.Flags().GetString("cluster"); cluster == "" {
 			return fmt.Errorf("cluster must be specified")
