@@ -11,7 +11,7 @@ import (
 // exportCmd represents the export command
 var exportCmd = &cobra.Command{
 	Use:     "export",
-	Short:   "export and download the database at its current position",
+	Short:   "Export and download the database at its current position",
 	Aliases: []string{"e"},
 	Args:    cobra.ExactArgs(1),
 	PreRunE: func(cmd *cobra.Command, args []string) error {

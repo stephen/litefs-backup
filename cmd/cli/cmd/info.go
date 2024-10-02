@@ -10,7 +10,7 @@ import (
 // infoCmd represents the info command
 var infoCmd = &cobra.Command{
 	Use:     "info",
-	Short:   "fetch min and max restorable timestamps for given db",
+	Short:   "Fetch min and max restorable timestamps for given db",
 	Aliases: []string{"i"},
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -13,7 +13,7 @@ import (
 // restoreCmd represents the restore command
 var restoreCmd = &cobra.Command{
 	Use:     "restore",
-	Short:   "restore a database to a timestamp or txid",
+	Short:   "Restore a database to a timestamp or txid",
 	Aliases: []string{"r"},
 	Args:    cobra.ExactArgs(1),
 	PreRunE: func(cmd *cobra.Command, args []string) error {

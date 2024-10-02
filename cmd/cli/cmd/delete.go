@@ -9,7 +9,7 @@ import (
 // deleteCmd represents the delete command
 var deleteCmd = &cobra.Command{
 	Use:   "delete",
-	Short: "permanently delete a db and its backups from the cluster",
+	Short: "Permanently delete a db and its backups from the cluster",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := Client().DeleteDB(cmd.Context(), args[0]); err != nil {

@@ -10,7 +10,7 @@ import (
 var importCmd = &cobra.Command{
 	Use:     "import",
 	Aliases: []string{"i"},
-	Short:   "import a database into the litefs cluster",
+	Short:   "Import a database into the litefs cluster",
 	Long: `Import a database into the litefs cluster.
 
 If the database already exists in the cluster, the imported
