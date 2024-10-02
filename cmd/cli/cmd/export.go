@@ -8,11 +8,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// snapshotCmd represents the snapshot command
-var snapshotCmd = &cobra.Command{
-	Use:     "snapshot",
-	Short:   "download the current snapshot of the given database",
-	Aliases: []string{"s"},
+// exportCmd represents the export command
+var exportCmd = &cobra.Command{
+	Use:     "export",
+	Short:   "export and download the database at its current position",
+	Aliases: []string{"e"},
 	Args:    cobra.ExactArgs(1),
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		if format, _ := cmd.Flags().GetString("format"); format != "ltx" && format != "sqlite" {
@@ -46,8 +46,8 @@ var snapshotCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(snapshotCmd)
+	rootCmd.AddCommand(exportCmd)
 
-	snapshotCmd.Flags().StringP("output", "o", "", "output file")
-	snapshotCmd.Flags().StringP("format", "f", "sqlite", "format: sqlite (default) or ltx")
+	exportCmd.Flags().StringP("output", "o", "", "output file")
+	exportCmd.Flags().StringP("format", "f", "sqlite", "format: sqlite (default) or ltx")
 }
