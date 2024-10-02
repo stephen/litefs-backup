@@ -24,8 +24,8 @@ var infoCmd = &cobra.Command{
 
 		rows := [][]string{{
 			info.Name,
-			info.MinTimestamp.Format(time.RFC3339),
-			info.MaxTimestamp.Format(time.RFC3339),
+			info.MinTimestamp.Format(time.RFC3339Nano),
+			info.MaxTimestamp.Format(time.RFC3339Nano),
 		}}
 
 		VerticalTable(os.Stdout, "db info", rows, "database", "min", "max")

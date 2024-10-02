@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -145,12 +146,41 @@ func (c *Client) HWM(ctx context.Context) (map[string]ltx.TXID, error) {
 	return output, nil
 }
 
-// RestoreDatabaseToTimestamp reverts the database to the state closest to the given timestamp.
+// RestoreByTimestamp tries to restore to the timestamp, or closest point earlier than the timestamp.
+func RestoreByTimestamp(timestamp time.Time) RestoreOption {
+	return func(ro *restoreOptions) {
+		ro.timestamp = timestamp
+	}
+}
+
+// RestoreByTXID tries to restore to the txid, if available.
+func RestoreByTXID(txid string) RestoreOption {
+	return func(ro *restoreOptions) {
+		ro.txid = txid
+	}
+}
+
+type RestoreOption func(*restoreOptions)
+type restoreOptions struct {
+	txid      string
+	timestamp time.Time
+}
+
+// RestoreDatabase reverts the database to the state by timestamp or txid.
 // A cluster-scoped authentication token with write permissions is required.
-func (c *Client) RestoreDatabaseToTimestamp(ctx context.Context, database string, timestamp time.Time) (ltx.TXID, error) {
+func (c *Client) RestoreDatabase(ctx context.Context, database string, ro RestoreOption) (ltx.TXID, error) {
+	var o restoreOptions
+	ro(&o)
+
 	q := make(url.Values)
 	q.Set("db", database)
-	q.Set("timestamp", timestamp.Format(time.RFC3339))
+	if !o.timestamp.IsZero() {
+		q.Set("timestamp", o.timestamp.Format(time.RFC3339Nano))
+	} else if o.txid != "" {
+		q.Set("txid", o.txid)
+	} else {
+		return 0, errors.New("expected txid or timestamp")
+	}
 
 	var output restoreDatabaseOutput
 	if err := c.Do(ctx, "POST", url.URL{Path: "/db/restore", RawQuery: q.Encode()}, nil, &output); err != nil {
@@ -161,6 +191,35 @@ func (c *Client) RestoreDatabaseToTimestamp(ctx context.Context, database string
 
 type restoreDatabaseOutput struct {
 	TXID ltx.TXID `json:"txID"`
+}
+
+// CheckRestoreDatabase verifies that the requested restore can be completed and returns the txid/timestamp
+// that will be restored.
+// A cluster-scoped authentication token with write permissions is required.
+func (c *Client) CheckRestoreDatabase(ctx context.Context, database string, ro RestoreOption) (*CheckRestoreDatabaseOutput, error) {
+	var o restoreOptions
+	ro(&o)
+
+	q := make(url.Values)
+	q.Set("db", database)
+	if !o.timestamp.IsZero() {
+		q.Set("timestamp", o.timestamp.Format(time.RFC3339Nano))
+	} else if o.txid != "" {
+		q.Set("txid", o.txid)
+	} else {
+		return nil, errors.New("expected txid or timestamp")
+	}
+
+	var output CheckRestoreDatabaseOutput
+	if err := c.Do(ctx, "GET", url.URL{Path: "/db/restore/check", RawQuery: q.Encode()}, nil, &output); err != nil {
+		return nil, err
+	}
+	return &output, nil
+}
+
+type CheckRestoreDatabaseOutput struct {
+	Timestamp time.Time `json:"timestamp"`
+	TXID      ltx.TXID  `json:"txID"`
 }
 
 // ExportDatabase returns a reader that contains the current database state.
