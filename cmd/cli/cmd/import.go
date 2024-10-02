@@ -8,9 +8,8 @@ import (
 
 // importCmd represents the import command
 var importCmd = &cobra.Command{
-	Use:     "import",
-	Aliases: []string{"i"},
-	Short:   "Import a database into the litefs cluster",
+	Use:   "import",
+	Short: "Import a database into the litefs cluster",
 	Long: `Import a database into the litefs cluster.
 
 If the database already exists in the cluster, the imported
