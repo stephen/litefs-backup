@@ -25,10 +25,12 @@ var infoCmd = &cobra.Command{
 		rows := [][]string{{
 			info.Name,
 			info.MinTimestamp.Format(time.RFC3339Nano),
+			info.MinTXID,
 			info.MaxTimestamp.Format(time.RFC3339Nano),
+			info.MaxTXID,
 		}}
 
-		VerticalTable(os.Stdout, "db info", rows, "database", "min", "max")
+		VerticalTable(os.Stdout, "db info", rows, "database", "min timestamp", "min txid", "max timestamp", "max txid")
 
 		return nil
 	},

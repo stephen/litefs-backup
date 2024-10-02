@@ -402,7 +402,9 @@ func isSuccessfulStatusCode(code int) bool {
 type DBInfoOutput struct {
 	Name         string     `json:"name"`
 	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
+	MinTXID      string     `json:"minTxId"`
 	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
+	MaxTXID      string     `json:"maxTxId"`
 }
 
 // Regions returns a list of available LiteFS Cloud regions.

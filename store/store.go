@@ -585,7 +585,9 @@ func readSQLiteDatabaseHeader(rd io.Reader) (ord io.Reader, hdr sqliteDatabaseHe
 type DBInfo struct {
 	Name                   string
 	MinRestorableTimestamp time.Time
+	MinTXID                ltx.TXID
 	MaxRestorableTimestamp time.Time
+	MaxTXID                ltx.TXID
 }
 
 func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, error) {
@@ -605,6 +607,7 @@ func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, er
 		return nil, err
 	}
 	info.MinRestorableTimestamp = md.Timestamp.UTC()
+	info.MinTXID = paths[0].MinTXID
 
 	// Fetch upper timestamp bound from last available path.
 	md, err = s.RemoteClient.Metadata(ctx, paths[len(paths)-1])
@@ -612,6 +615,7 @@ func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, er
 		return nil, err
 	}
 	info.MaxRestorableTimestamp = md.Timestamp.UTC()
+	info.MaxTXID = paths[len(paths)-1].MaxTXID
 
 	return info, nil
 }

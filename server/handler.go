@@ -237,8 +237,14 @@ func (s *Server) handleGetDBInfo(ctx context.Context, w http.ResponseWriter, r *
 	if !info.MinRestorableTimestamp.IsZero() {
 		resp.MinTimestamp = &info.MinRestorableTimestamp
 	}
+	if info.MinTXID != 0 {
+		resp.MinTXID = info.MinTXID.String()
+	}
 	if !info.MaxRestorableTimestamp.IsZero() {
 		resp.MaxTimestamp = &info.MaxRestorableTimestamp
+	}
+	if info.MaxTXID != 0 {
+		resp.MaxTXID = info.MaxTXID.String()
 	}
 
 	return httputil.RenderResponse(w, resp)
@@ -247,7 +253,9 @@ func (s *Server) handleGetDBInfo(ctx context.Context, w http.ResponseWriter, r *
 type getDBInfoResponse struct {
 	Name         string     `json:"name"`
 	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
+	MinTXID      string     `json:"minTxId"`
 	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
+	MaxTXID      string     `json:"maxTxId"`
 }
 
 func (s *Server) handleDeleteDB(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
