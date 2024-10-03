@@ -6,7 +6,7 @@
 [[task]]
   id = "server"
   type = "long"
-  cmd = "go run cmd/litefs-backup/*"
+  cmd = "go run cmd/lfsb-server/*"
   watch = ["**/*.go"]
 
 [[task]]

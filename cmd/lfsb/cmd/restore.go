@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/stephen/litefs-backup/cmd/cli/cmd/client"
+	"github.com/stephen/litefs-backup/cmd/lfsb/cmd/client"
 	"github.com/superfly/ltx"
 )
 

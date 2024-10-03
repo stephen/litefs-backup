@@ -11,7 +11,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:          "lfsb",
 	Short:        "litefs-backup administration cli",
-	Long:         `litefs-backup is a cli for administrating a LiteFS backup server.`,
+	Long:         `lfsb is a cli for administrating a lfsb-server instance.`,
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cluster, _ := cmd.Flags().GetString("cluster"); cluster == "" {

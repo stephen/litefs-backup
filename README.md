@@ -8,11 +8,11 @@ Lfsb will backup your LiteFS cluster to any s3-compatible storage provider.
 Lfsb is organized into clusters. A cluster can contain multiple sqlite databases. For instance, you might have a `prod` cluster with `users.db` and `datapoints.db` and another cluster `beta` with separate `users.db` and `jobs.db`.
 
 ## Control plane
-Lfsb comes with a cli for importing, exporting, and restoring a database.
+Lfsb comes with a cli (`lfsb`) for importing, exporting, and restoring a database.
 
 ```sh
 $ lfsb help
-litefs-backup is a cli for administrating a LiteFS backup server.
+lfsb is a cli for administrating a lfsb-server instance.
 
 Usage:
   lfsb [command]

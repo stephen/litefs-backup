@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/stephen/litefs-backup/cmd/cli/cmd/client"
+	"github.com/stephen/litefs-backup/cmd/lfsb/cmd/client"
 )
 
 func Client() *client.Client {

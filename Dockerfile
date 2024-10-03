@@ -13,11 +13,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
 	--mount=type=cache,target=/go/pkg \
-	go build -ldflags "-X 'main.Version=$LFSB_VERSION'" -o /usr/local/bin/lfsb-server ./cmd/litefs-backup
+	go build -ldflags "-X 'main.Version=$LFSB_VERSION'" -o /usr/local/bin/lfsb-server ./cmd/lfsb-server
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
 	--mount=type=cache,target=/go/pkg \
-	go build -o /usr/local/bin/lfsb ./cmd/cli
+	go build -o /usr/local/bin/lfsb ./cmd/lfsb
 
 FROM alpine
 
