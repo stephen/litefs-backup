@@ -228,34 +228,33 @@ func (s *Server) handleGetDBInfo(ctx context.Context, w http.ResponseWriter, r *
 		return err
 	}
 
-	info, err := s.store.Info(ctx, cluster, name)
+	info, err := s.store.Info(ctx, cluster, name, q.Has("all"))
 	if err != nil {
 		return err
 	}
 
-	resp := getDBInfoResponse{Name: name}
-	if !info.MinRestorableTimestamp.IsZero() {
-		resp.MinTimestamp = &info.MinRestorableTimestamp
+	paths := make([]getDBInfoResponsePath, 0, len(info.RestorablePaths))
+	for _, p := range info.RestorablePaths {
+		paths = append(paths, getDBInfoResponsePath{
+			MaxTXID:           p.MaxTXID.String(),
+			Timestamp:         &p.Metadata.Timestamp,
+			PostApplyChecksum: p.Metadata.PostApplyChecksum.String(),
+		})
 	}
-	if info.MinTXID != 0 {
-		resp.MinTXID = info.MinTXID.String()
-	}
-	if !info.MaxRestorableTimestamp.IsZero() {
-		resp.MaxTimestamp = &info.MaxRestorableTimestamp
-	}
-	if info.MaxTXID != 0 {
-		resp.MaxTXID = info.MaxTXID.String()
-	}
+	resp := getDBInfoResponse{Name: name, RestorablePaths: paths}
 
 	return httputil.RenderResponse(w, resp)
 }
 
 type getDBInfoResponse struct {
-	Name         string     `json:"name"`
-	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
-	MinTXID      string     `json:"minTxId"`
-	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
-	MaxTXID      string     `json:"maxTxId"`
+	Name            string                  `json:"name"`
+	RestorablePaths []getDBInfoResponsePath `json:"restorablePaths"`
+}
+
+type getDBInfoResponsePath struct {
+	MaxTXID           string     `json:"maxTxId"`
+	Timestamp         *time.Time `json:"maxTimestamp,omitempty"`
+	PostApplyChecksum string     `json:"postApplyChecksum"`
 }
 
 func (s *Server) handleDeleteDB(ctx context.Context, w http.ResponseWriter, r *http.Request) error {

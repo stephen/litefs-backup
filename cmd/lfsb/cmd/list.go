@@ -22,7 +22,7 @@ var listCmd = &cobra.Command{
 			rows = append(rows, []string{n, p.TXID.String(), p.PostApplyChecksum.String()})
 		}
 
-		Table(os.Stdout, rows, "database", "txid", "checksum")
+		Table(os.Stdout, "", rows, "database", "txid", "checksum")
 
 		return nil
 	},

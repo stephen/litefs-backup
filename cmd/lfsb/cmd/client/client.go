@@ -408,17 +408,24 @@ func isSuccessfulStatusCode(code int) bool {
 }
 
 type DBInfoOutput struct {
-	Name         string     `json:"name"`
-	MinTimestamp *time.Time `json:"minTimestamp,omitempty"`
-	MinTXID      string     `json:"minTxId"`
-	MaxTimestamp *time.Time `json:"maxTimestamp,omitempty"`
-	MaxTXID      string     `json:"maxTxId"`
+	Name            string                 `json:"name"`
+	RestorablePaths []DBInfoRestorablePath `json:"restorablePaths"`
+}
+
+type DBInfoRestorablePath struct {
+	MaxTXID           string     `json:"maxTxId"`
+	Timestamp         *time.Time `json:"maxTimestamp,omitempty"`
+	PostApplyChecksum string     `json:"postApplyChecksum"`
 }
 
 // Regions returns a list of available LiteFS Cloud regions.
-func (c *Client) Info(ctx context.Context, database string) (*DBInfoOutput, error) {
+func (c *Client) Info(ctx context.Context, database string, all bool) (*DBInfoOutput, error) {
 	q := make(url.Values)
 	q.Set("db", database)
+	if all {
+		q.Set("all", "")
+	}
+
 	req, err := c.newRequest(ctx, "GET", url.URL{Path: "/db/info", RawQuery: q.Encode()}, nil)
 	if err != nil {
 		return nil, err

@@ -26,7 +26,11 @@ import (
 	"github.com/olekukonko/tablewriter"
 )
 
-func Table(w io.Writer, rows [][]string, cols ...string) error {
+func Table(w io.Writer, title string, rows [][]string, cols ...string) error {
+	if title != "" {
+		fmt.Fprintln(w, aurora.Bold(title))
+	}
+
 	table := tablewriter.NewWriter(w)
 
 	if len(cols) > 0 {

@@ -583,14 +583,11 @@ func readSQLiteDatabaseHeader(rd io.Reader) (ord io.Reader, hdr sqliteDatabaseHe
 
 // DBInfo holds basic info about a single database.
 type DBInfo struct {
-	Name                   string
-	MinRestorableTimestamp time.Time
-	MinTXID                ltx.TXID
-	MaxRestorableTimestamp time.Time
-	MaxTXID                ltx.TXID
+	Name            string
+	RestorablePaths []StoragePath
 }
 
-func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, error) {
+func (s *Store) Info(ctx context.Context, cluster, database string, all bool) (*DBInfo, error) {
 	info := &DBInfo{Name: database}
 
 	// We are restoring from level 2, so for now just list min/max L2 timestamps.
@@ -601,21 +598,21 @@ func (s *Store) Info(ctx context.Context, cluster, database string) (*DBInfo, er
 		return info, nil // no files at level, not available for restore
 	}
 
-	// Fetch lower timestamp bound from first available path.
-	md, err := s.RemoteClient.Metadata(ctx, paths[0])
-	if err != nil {
-		return nil, err
-	}
-	info.MinRestorableTimestamp = md.Timestamp.UTC()
-	info.MinTXID = paths[0].MinTXID
-
 	// Fetch upper timestamp bound from last available path.
-	md, err = s.RemoteClient.Metadata(ctx, paths[len(paths)-1])
+	last, err := s.RemoteClient.Metadata(ctx, paths[len(paths)-1])
 	if err != nil {
 		return nil, err
 	}
-	info.MaxRestorableTimestamp = md.Timestamp.UTC()
-	info.MaxTXID = paths[len(paths)-1].MaxTXID
+	paths[len(paths)-1].Metadata = last
+
+	info.RestorablePaths = paths
+	if !all {
+		info.RestorablePaths = []StoragePath{paths[0], paths[len(paths)-1]}
+	}
+
+	if err := AttachMetadata(ctx, s.RemoteClient, info.RestorablePaths, 32); err != nil {
+		return nil, err
+	}
 
 	return info, nil
 }
