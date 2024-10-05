@@ -4,6 +4,23 @@ A drop-in replacement for the deprecated [LiteFS Cloud](https://fly.io/blog/lite
 
 Lfsb will backup your LiteFS cluster to any s3-compatible storage provider.
 
+* [Overview](#overview)
+   * [Control plane](#control-plane)
+   * [Authentication](#authentication)
+   * [Storage subsystem](#storage-subsystem)
+   * [Limitations &amp; differences with LiteFS Cloud](#limitations--differences-with-litefs-cloud)
+* [Quickstart: switching from LiteFS Cloud](#quickstart-switching-from-litefs-cloud)
+   * [Deployment on fly.io](#deployment-on-flyio)
+   * [Configure LiteFS to use lfsb](#configure-litefs-to-use-lfsb)
+   * [Using the control plane](#using-the-control-plane)
+      * [Install and configure the cli](#install-and-configure-the-cli)
+      * [Basic operation](#basic-operation)
+* [Development](#development)
+   * [Setup](#setup)
+   * [Test](#test)
+   * [Migrations](#migrations)
+   * [Configuration](#configuration)
+
 # Overview
 Lfsb is organized into clusters. A cluster can contain multiple sqlite databases. For instance, you might have a `prod` cluster with `users.db` and `datapoints.db` and another cluster `beta` with separate `users.db` and `jobs.db`.
 
@@ -32,6 +49,8 @@ Flags:
   -e, --endpoint string   lfsb endpoint (default "http://tender-litefs-backup.flycast:2200")
   -h, --help              help for lfsb
 ```
+
+See section on [using the control plane](#using-the-control-plane).
 
 ## Authentication
 Lfsb does not support any authentication scheme. To keep API-compatibility with LiteFS,
@@ -102,6 +121,52 @@ fly logs
 Configure your service running litefs with two environment variables:
 - Set `LITEFS_CLOUD_ENDPOINT` to the location of your newly deployed lfsb. On fly, this might look like `http://someones-litefs-backup.internal:2200`.
 - Set `LITEFS_CLOUD_TOKEN` to `cluster [cluster name]`, e.g. `cluster canary`. Clusters do not need to be pre-registered.
+
+## Using the control plane
+
+### Install and configure the cli
+Install the proper [release](https://github.com/stephen/litefs-backup/releases) for your system and place it in your $PATH.
+
+```sh
+curl "https://github.com/stephen/litefs-backup/releases/latest/download/litefs-backup_$(uname -s)_$(uname -m).tar.gz" 2>/dev/null | tar -xz run 2>/dev/null
+```
+
+You can optionally set `LFSB_CLUSTER` and `LFSB_ENDPOINT` to your expected cluster and endpoint url, e.g.
+
+```sh
+export LFSB_CLUSTER="prod"
+export LFSB_ENDPOINT="http://someones-litefs-backup.internal:2200"
+```
+
+If you are using fly.io, [setup a wireguard vpn](https://fly.io/docs/networking/private-networking/#private-network-vpn) to connect into your private network:
+```sh
+fly wireguard create
+```
+
+### Basic operation
+List known databases:
+```sh
+lfsb list
+```
+
+List restore points for a database:
+```sh
+lfsb info data.db
+```
+
+Download the current snapshot of a database:
+```sh
+lfsb export data.db
+```
+
+Restore a database to a timestamp or txid:
+```sh
+# first, do a dry run to check that the restore point is available:
+lfsb restore data.db --check --txid=[txid] # or --timestamp=[timestamp, e.g. 2024-06-08T12:22:39]
+
+# now, actually run the restore
+lfsb restore data.db --txid=[txid]
+```
 
 # Development
 
