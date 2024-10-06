@@ -58,7 +58,7 @@ func NewStore(config *lfsb.Config) *Store {
 		Levels: []*CompactionLevel{
 			{Level: 0},
 			{Level: 1, Interval: 10 * time.Second, Retention: 1 * time.Hour},
-			{Level: 2, Interval: 5 * time.Minute, Retention: 3 * 24 * time.Hour},
+			{Level: 2, Interval: 5 * time.Minute, Retention: 30 * 24 * time.Hour},
 			{Level: 3, Interval: 1 * time.Hour, Retention: 30 * 24 * time.Hour},
 		},
 		Now: func() time.Time {
