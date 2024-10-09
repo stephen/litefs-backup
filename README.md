@@ -1,8 +1,12 @@
 # 📦 litefs-backup (lfsb)
 
-A drop-in replacement for the deprecated [LiteFS Cloud](https://fly.io/blog/litefs-cloud/) backup service.
+A drop-in replacement for LiteFS Cloud. Lfsb will backup your LiteFS cluster to any s3-compatible storage provider.
 
-Lfsb will backup your LiteFS cluster to any s3-compatible storage provider.
+This project is sponsored by [Tender](https://tender.run) - a private, productive personal finance tool.
+
+This codebase is a simplified fork of [LiteFS Cloud](https://fly.io/blog/litefs-cloud/), originally
+authored and graciously donated by [@benbjohnson](http://github.com/benbjohnson) and co at [fly.io](https://fly.io).
+
 
 * [Overview](#overview)
    * [Control plane](#control-plane)
@@ -27,7 +31,7 @@ Lfsb is organized into clusters. A cluster can contain multiple sqlite databases
 ## Control plane
 Lfsb comes with a cli (`lfsb`) for importing, exporting, and restoring a database.
 
-```sh
+```
 $ lfsb help
 lfsb is a cli for administrating a lfsb-server instance.
 
