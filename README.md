@@ -7,68 +7,21 @@ This project is sponsored by [Tender](https://tender.run) - a private, productiv
 This codebase is a simplified fork of [LiteFS Cloud](https://fly.io/blog/litefs-cloud/), originally
 authored and graciously donated by [@benbjohnson](http://github.com/benbjohnson) and co at [fly.io](https://fly.io).
 
-
-* [Overview](#overview)
-   * [Control plane](#control-plane)
-   * [Authentication](#authentication)
-   * [Storage subsystem](#storage-subsystem)
-   * [Limitations &amp; differences with LiteFS Cloud](#limitations--differences-with-litefs-cloud)
+* [Limitations &amp; differences with LiteFS Cloud](#limitations--differences-with-litefs-cloud)
 * [Quickstart: switching from LiteFS Cloud](#quickstart-switching-from-litefs-cloud)
    * [Deployment on fly.io](#deployment-on-flyio)
    * [Configure LiteFS to use lfsb](#configure-litefs-to-use-lfsb)
    * [Using the control plane](#using-the-control-plane)
       * [Install and configure the cli](#install-and-configure-the-cli)
       * [Basic operation](#basic-operation)
+* [System overview](#system-overview)
+   * [Authentication](#authentication)
+   * [Storage subsystem](#storage-subsystem)
 * [Development](#development)
    * [Setup](#setup)
    * [Test](#test)
    * [Migrations](#migrations)
    * [Configuration](#configuration)
-
-# Overview
-Lfsb is organized into clusters. A cluster can contain multiple sqlite databases. For instance, you might have a `prod` cluster with `users.db` and `datapoints.db` and another cluster `beta` with separate `users.db` and `jobs.db`.
-
-## Control plane
-Lfsb comes with a cli (`lfsb`) for importing, exporting, and restoring a database.
-
-```
-$ lfsb help
-lfsb is a cli for administrating a lfsb-server instance.
-
-Usage:
-  lfsb [command]
-
-Available Commands:
-  completion  Generate the autocompletion script for the specified shell
-  delete      Permanently delete a db and its backups from the cluster
-  export      Export and download the database at its current position
-  help        Help about any command
-  import      Import a database into the litefs cluster
-  info        Fetch min and max restorable timestamps for given db
-  list        Get databases and positions for this cluster
-  restore     Restore a database to a timestamp or txid
-
-Flags:
-  -c, --cluster string    lfsb cluster name (default "canary")
-  -e, --endpoint string   lfsb endpoint (default "http://tender-litefs-backup.flycast:2200")
-  -h, --help              help for lfsb
-```
-
-See section on [using the control plane](#using-the-control-plane).
-
-## Authentication
-Lfsb does not support any authentication scheme. To keep API-compatibility with LiteFS,
-the `Authorization` header is still used to identify which cluster LiteFS is connecting to.
-
-The authorization header is in the format `cluster [cluster name]`,
-instead of the LiteFS Cloud format `FlyV1 [token]`.
-
-## Storage subsystem
-Lfsb stores data in two places:
-- a sqlite metadata db on disk
-- s3-compatible remote storage
-
-Both are expected to be available and durable for the system to function.
 
 ## Limitations & differences with LiteFS Cloud
 - Lfsb does not do any authentication and assumes access across a private network.
@@ -77,7 +30,8 @@ Both are expected to be available and durable for the system to function.
 
 # Quickstart: switching from LiteFS Cloud
 
-Lfsb is intended to be a mostly drop-in replacement for LiteFS Cloud.
+Lfsb is intended to be a mostly drop-in replacement for LiteFS Cloud. For system requirements, lfsb needs a single-node machine
+with a persistent disk and s3-compatible object storage.
 
 ## Deployment on fly.io
 Prerequisite: set up a [fly.io](https://fly.io) account and install [flyctl](https://fly.io/docs/flyctl/install/).
@@ -117,9 +71,11 @@ fly logs
 # INFO server listening addr=:2200
 # INFO waiting for signal or subprocess to exit
 # INFO monitoring compaction level=1 interval=10s retention=1h0m0s
-# INFO monitoring compaction level=2 interval=5m0s retention=72h0m0s
+# INFO monitoring compaction level=2 interval=5m0s retention=720h0m0s
 # INFO monitoring compaction level=3 interval=1h0m0s retention=720h0m0s
 ```
+
+This configuration gives the same 5-minute granularity point-in-time restore as LiteFS Cloud.
 
 ## Configure LiteFS to use lfsb
 
@@ -135,7 +91,7 @@ Configure your service running litefs with two environment variables:
 ## Using the control plane
 
 ### Install and configure the cli
-Install the proper [release](https://github.com/stephen/litefs-backup/releases) for your system and place it in your $PATH.
+Install the [release](https://github.com/stephen/litefs-backup/releases) for your system and place it in your `$PATH`.
 
 ```sh
 curl "https://github.com/stephen/litefs-backup/releases/latest/download/litefs-backup_$(uname -s)_$(uname -m).tar.gz" 2>/dev/null | tar -xz run 2>/dev/null
@@ -144,8 +100,8 @@ curl "https://github.com/stephen/litefs-backup/releases/latest/download/litefs-b
 You can optionally set `LFSB_CLUSTER` and `LFSB_ENDPOINT` to your expected cluster and endpoint url, e.g.
 
 ```sh
-export LFSB_CLUSTER="prod"
-export LFSB_ENDPOINT="http://someones-litefs-backup.internal:2200"
+export LFSB_CLUSTER="prod" # or --cluster
+export LFSB_ENDPOINT="http://someones-litefs-backup.internal:2200" # or --endpoint
 ```
 
 If you are using fly.io, [setup a wireguard vpn](https://fly.io/docs/networking/private-networking/#private-network-vpn) to connect into your private network:
@@ -178,6 +134,24 @@ lfsb restore data.db --check --txid=[txid] # or --timestamp=[timestamp, e.g. 202
 lfsb restore data.db --txid=[txid]
 ```
 
+# System overview
+Lfsb is organized into clusters. A cluster can contain multiple sqlite databases. For instance, you might
+have a `prod` cluster with `users.db` and `datapoints.db` and another cluster `beta` with separate `users.db` and `jobs.db`.
+
+## Authentication
+Lfsb does not support any authentication scheme. To keep API-compatibility with LiteFS,
+the `Authorization` header is still used to identify which cluster LiteFS is connecting to.
+
+The authorization header is in the format `cluster [cluster name]`,
+instead of the LiteFS Cloud format `FlyV1 [token]`.
+
+## Storage subsystem
+Lfsb stores data in two places:
+- a sqlite metadata db on disk
+- s3-compatible remote storage
+
+Both are expected to be available and durable for the system to function.
+
 # Development
 
 ## Setup
@@ -198,8 +172,7 @@ dbmate [up, down, new]
 ```
 
 ## Configuration
-
-Configuration is done through environment variables
+Configuration is done through environment variables.
 
 ### `LFSB_DATA_PATH` (required)
 The directory where lfsb will keep its local data store. This should
