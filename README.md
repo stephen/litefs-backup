@@ -122,6 +122,12 @@ fly logs
 ```
 
 ## Configure LiteFS to use lfsb
+
+Use litefs from commit [2e78724973211ba426c224e89d99c256fd6722be](https://github.com/superfly/litefs/commit/2e78724973211ba426c224e89d99c256fd6722be) or later. If you pull litefs from docker, this looks like:
+```
+COPY --from=flyio/litefs:sha-2e78724 /usr/local/bin/litefs /usr/local/bin/litefs
+```
+
 Configure your service running litefs with two environment variables:
 - Set `LITEFS_CLOUD_ENDPOINT` to the location of your newly deployed lfsb. On fly, this might look like `http://someones-litefs-backup.internal:2200`.
 - Set `LITEFS_CLOUD_TOKEN` to `cluster [cluster name]`, e.g. `cluster canary`. Clusters do not need to be pre-registered.
