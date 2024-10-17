@@ -100,7 +100,7 @@ func findTxnByTXIDRange(ctx context.Context, tx DBTX, dbID int, minTXID, maxTXID
 		(*sqliteutil.Checksum)(&txn.PreApplyChecksum),
 		(*sqliteutil.Checksum)(&txn.PostApplyChecksum),
 	); err == sql.ErrNoRows {
-		return nil, lfsb.ErrTxNotAvailable
+		return nil, fmt.Errorf("could not find txn by id range %s-%s: %w", minTXID, maxTXID, lfsb.ErrTxNotAvailable)
 	} else if err != nil {
 		return nil, err
 	}

@@ -64,20 +64,16 @@ func (s *Store) NextCompactionAt(level int) time.Time {
 // ProcessCompactions attempts to process all compaction requests
 // at the given level. Any individual compaction failures are logged.
 func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
-	logger := slog.With(slog.Int("level", dstLevel))
+	logger := slog.With(
+		slog.Int("level", dstLevel),
+	)
 
 	// Acquire a local lock so we prevent simultaneuous compactions and also
 	// so we can check if we are currently compacting.
 	s.compactionMus[dstLevel].Lock()
 	defer s.compactionMus[dstLevel].Unlock()
 
-	tx, err := sqliteutil.BeginImmediate(s.db)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	reqs, err := findCompactionRequestsByLevel(ctx, tx, dstLevel)
+	reqs, err := findCompactionRequestsByLevel(ctx, s.db, dstLevel)
 	if err != nil {
 		return fmt.Errorf("find compaction requests: %w", err)
 	} else if len(reqs) == 0 {
@@ -86,34 +82,46 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 
 	// Iterate over pending requests and process them.
 	for _, req := range reqs {
-		_, err = s.CompactDBToLevel(ctx, tx, req.Cluster, req.Database, req.Level)
-		if lfsb.ErrorCode(err) == lfsb.ENOCOMPACTION {
-			// It's okay. Fallthrough to marking this one complete.
-		} else if lfsb.ErrorCode(err) == lfsb.EPARTIALCOMPACTION {
-			logger.Error("partial level compaction occurred, retrying again",
-				slog.String("cluster", req.Cluster),
-				slog.String("database", req.Database))
-			continue
-		} else if err != nil {
-			logger.Error("level compaction failed",
-				slog.String("cluster", req.Cluster),
-				slog.String("database", req.Database),
-				slog.Any("err", err))
-			continue
+		if err := s.ProcessCompaction(ctx, req, logger); err != nil {
+			logger.Error("failed to process compaction", slog.Any("err", err))
 		}
+	}
 
-		db, err := findDBByName(ctx, tx, req.Cluster, req.Database)
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		if err := markCompactionRequestComplete(ctx, tx, db.ID, req.Level, req.IdempotencyKey); err != nil {
-			logger.Error("cannot mark compaction request complete",
-				slog.String("cluster", req.Cluster),
-				slog.String("database", req.Database),
-				slog.Any("err", err))
-			continue
-		}
+func (s *Store) ProcessCompaction(ctx context.Context, req *CompactionRequest, logger *slog.Logger) error {
+	logger = logger.With(
+		slog.String("cluster", req.Cluster),
+		slog.String("database", req.Database),
+	)
+
+	tx, err := sqliteutil.BeginImmediate(s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = s.CompactDBToLevel(ctx, tx, req.Cluster, req.Database, req.Level)
+	if lfsb.ErrorCode(err) == lfsb.ENOCOMPACTION {
+		// It's okay. Fallthrough to marking this one complete.
+	} else if lfsb.ErrorCode(err) == lfsb.EPARTIALCOMPACTION {
+		logger.Error("partial level compaction occurred, retrying again",
+			slog.Any("err", err))
+		return nil
+	} else if err != nil {
+		logger.Error("level compaction failed",
+			slog.Any("err", err))
+		return nil
+	}
+
+	db, err := findDBByName(ctx, tx, req.Cluster, req.Database)
+	if err != nil {
+		return err
+	}
+
+	if err := markCompactionRequestComplete(ctx, tx, db.ID, req.Level, req.IdempotencyKey); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -237,9 +245,10 @@ func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database
 
 	// during compaction, we remove old stuff that's beyond the retention window
 	if retention > 0 {
-		txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, now.Add(-retention))
+		ts := now.Add(-retention)
+		txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, ts)
 		if err != nil && errors.Is(err, lfsb.ErrTxNotAvailable) {
-			return StoragePath{}, fmt.Errorf("find max txn before timestamp: %w", err)
+			return StoragePath{}, fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
 		} else if txn != nil && txn.MaxTXID <= maxTXID {
 			if err := deleteTxnsBeforeMaxTXID(ctx, tx, db.ID, maxTXID); err != nil {
 				return StoragePath{}, fmt.Errorf("delete txns before %s: %w", maxTXID, err)
