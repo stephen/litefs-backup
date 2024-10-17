@@ -28,8 +28,8 @@
 **/bin
 **/data
 
-# flyctl launch added from store/.gitignore
-store/**/testdata
+store/**/testdata/
+dist/
 fly.toml
 
 .git/
