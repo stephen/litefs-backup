@@ -218,12 +218,15 @@ func (s *Store) compactL0(ctx context.Context, tx *sql.Tx, cluster, database str
 		return err
 	}
 
-	// during compaction, we remove old stuff that's beyond the retention window
 	if retention > 0 {
 		ts := now.Add(-retention)
 		txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, ts)
-		if err != nil && errors.Is(err, lfsb.ErrTxNotAvailable) {
-			return fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
+		if err != nil {
+			if !errors.Is(err, lfsb.ErrTxNotAvailable) {
+				return fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
+			} else {
+				// It's okay. We can't compact L0 because nothing is past the window yet.
+			}
 		} else if txn != nil && txn.MaxTXID <= maxTXID {
 			if err := deleteTxnsBeforeMaxTXID(ctx, tx, db.ID, maxTXID); err != nil {
 				return fmt.Errorf("delete txns before %s: %w", maxTXID, err)
