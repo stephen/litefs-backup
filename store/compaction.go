@@ -81,7 +81,7 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 
 	// Iterate over pending requests and process them.
 	for _, req := range reqs {
-		if err := s.ProcessCompaction(ctx, req, logger); err != nil {
+		if err := s.ProcessCompaction(ctx, req); err != nil {
 			logger.Error("failed to process compaction", slog.Any("err", err))
 		}
 	}
@@ -89,10 +89,9 @@ func (s *Store) ProcessCompactions(ctx context.Context, dstLevel int) error {
 	return nil
 }
 
-func (s *Store) ProcessCompaction(ctx context.Context, req *CompactionRequest, logger *slog.Logger) error {
-	logger = logger.With(
-		slog.String("cluster", req.Cluster),
-		slog.String("database", req.Database),
+func (s *Store) ProcessCompaction(ctx context.Context, req *CompactionRequest) error {
+	logger := s.dbLogger(req.Cluster, req.Database).With(
+		slog.Int("level", req.Level),
 	)
 
 	tx, err := sqliteutil.BeginImmediate(s.db)
@@ -157,7 +156,8 @@ func (s *Store) CompactDBToLevel(ctx context.Context, tx *sql.Tx, cluster, datab
 	}
 }
 
-// compactDBToL1 compacts from the L0 sqlite database into L1 in remote storage.
+// compactDBToL1 compacts from the L0 sqlite database into L1 in remote storage
+// and cleans up the sqlite db state (hwm and page retention).
 func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database string) (StoragePath, error) {
 	logger := s.dbLogger(cluster, database).With(
 		slog.Group("level", slog.Int("src", 0), slog.Int("dst", 1)))
@@ -200,41 +200,27 @@ func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database
 		return StoragePath{}, fmt.Errorf("write storage file: %w", err)
 	}
 
-	// Apply L0 compaction in sqlite db.
-	if err := s.compactL0(ctx, tx, cluster, database, logger, maxTXID); err != nil {
+	db, err := findDBByName(ctx, tx, cluster, database)
+	if err != nil {
 		return StoragePath{}, err
 	}
 
-	return outPath, nil
-}
-
-func (s *Store) compactL0(ctx context.Context, tx *sql.Tx, cluster, database string, logger *slog.Logger, maxTXID ltx.TXID) error {
-	now := s.Now()
-	retention := s.Levels[0].Retention
-
-	db, err := findDBByName(ctx, tx, cluster, database)
-	if err != nil {
-		return err
-	}
-
-	if retention > 0 {
-		if err := s.EnforceL0Retention(ctx, tx, db, maxTXID, now.Add(-retention)); err != nil {
-			return err
+	if retention := s.Levels[0].Retention; retention > 0 {
+		if err := s.EnforceL0Retention(ctx, tx, db, maxTXID, s.Now().Add(-retention)); err != nil {
+			return StoragePath{}, err
 		}
 	}
 
-	// L0 compaction occurs because pages are being written to L1 which, in turn,
-	// means that we need to trigger a compaction for the next level (L2).
+	// Request next level compaction.
 	if err := requestCompaction(ctx, tx, db.ID, 2, rand.Int()); err != nil {
-		return fmt.Errorf("request next level compaction: %w", err)
+		return StoragePath{}, fmt.Errorf("request next level compaction: %w", err)
 	}
 
 	if err := increaseHWM(ctx, tx, db.ID, maxTXID); err != nil {
-		return fmt.Errorf("increase hwm: %w", err)
+		return StoragePath{}, fmt.Errorf("increase hwm: %w", err)
 	}
 
-	logger.Debug("L0 pages compacted", slog.Duration("elapsed", time.Since(now)))
-	return nil
+	return outPath, nil
 }
 
 // compactDBToLevel handles any compactions sourced from L1 or higher.
