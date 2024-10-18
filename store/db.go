@@ -19,7 +19,7 @@ type DBTX interface {
 	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
 }
 
-// DB represents a database row in the shard.
+// DB represents a database row.
 type DB struct {
 	ID                int
 	Cluster           string

@@ -139,38 +139,7 @@ func (s *Store) ProcessCompaction(ctx context.Context, req *CompactionRequest, l
 // Returns the path of the newly compacted storage path.
 // Returns ENOCOMPACTION if no compaction occurred.
 // Returns EPARTIALCOMPACTION if there were too many files to compact.
-func (s *Store) CompactDBToLevel(ctx context.Context, callerTx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
-	var newTx *sql.Tx
-	if callerTx == nil {
-		tx, err := sqliteutil.BeginImmediate(s.db)
-		if err != nil {
-			return StoragePath{}, err
-		}
-
-		defer tx.Rollback()
-		newTx = tx
-	}
-
-	tx := callerTx
-	if tx == nil {
-		tx = newTx
-	}
-	path, err := s.compactDBToLevelWithTx(ctx, tx, cluster, database, dstLevel)
-	if err != nil {
-		return StoragePath{}, err
-	}
-
-	// If we started the tx, then close it up after.
-	if newTx != nil {
-		if err := newTx.Commit(); err != nil {
-			return StoragePath{}, err
-		}
-	}
-
-	return path, nil
-}
-
-func (s *Store) compactDBToLevelWithTx(ctx context.Context, tx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
+func (s *Store) CompactDBToLevel(ctx context.Context, tx *sql.Tx, cluster, database string, dstLevel int) (StoragePath, error) {
 	// Verify that we are compacting to a level that exists and is not L0.
 	// Level 0 is the raw LTX files that we receive from the client.
 	if dstLevel == 0 {
@@ -189,7 +158,7 @@ func (s *Store) compactDBToLevelWithTx(ctx context.Context, tx *sql.Tx, cluster,
 	}
 }
 
-// compactDBToL1 compacts from the L0 shard database into L1 in remote storage.
+// compactDBToL1 compacts from the L0 sqlite database into L1 in remote storage.
 func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database string) (StoragePath, error) {
 	logger := s.dbLogger(cluster, database).With(
 		slog.Group("level", slog.Int("src", 0), slog.Int("dst", 1)))
@@ -232,15 +201,21 @@ func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database
 		return StoragePath{}, fmt.Errorf("write storage file: %w", err)
 	}
 
-	startTime := time.Now()
-
 	// Apply L0 compaction in sqlite db.
+	if err := s.compactL0(ctx, tx, cluster, database, logger, maxTXID); err != nil {
+		return StoragePath{}, err
+	}
+
+	return outPath, nil
+}
+
+func (s *Store) compactL0(ctx context.Context, tx *sql.Tx, cluster, database string, logger *slog.Logger, maxTXID ltx.TXID) error {
 	now := s.Now()
 	retention := s.Levels[0].Retention
 
 	db, err := findDBByName(ctx, tx, cluster, database)
 	if err != nil {
-		return StoragePath{}, err
+		return err
 	}
 
 	// during compaction, we remove old stuff that's beyond the retention window
@@ -248,13 +223,13 @@ func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database
 		ts := now.Add(-retention)
 		txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, ts)
 		if err != nil && errors.Is(err, lfsb.ErrTxNotAvailable) {
-			return StoragePath{}, fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
+			return fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
 		} else if txn != nil && txn.MaxTXID <= maxTXID {
 			if err := deleteTxnsBeforeMaxTXID(ctx, tx, db.ID, maxTXID); err != nil {
-				return StoragePath{}, fmt.Errorf("delete txns before %s: %w", maxTXID, err)
+				return fmt.Errorf("delete txns before %s: %w", maxTXID, err)
 			}
 			if err := compactPagesBefore(ctx, tx, db.ID, maxTXID); err != nil {
-				return StoragePath{}, fmt.Errorf("compact pages before %s: %w", maxTXID, err)
+				return fmt.Errorf("compact pages before %s: %w", maxTXID, err)
 			}
 		}
 	}
@@ -262,16 +237,15 @@ func (s *Store) compactDBToL1(ctx context.Context, tx *sql.Tx, cluster, database
 	// L0 compaction occurs because pages are being written to L1 which, in turn,
 	// means that we need to trigger a compaction for the next level (L2).
 	if err := requestCompaction(ctx, tx, db.ID, 2, rand.Int()); err != nil {
-		return StoragePath{}, fmt.Errorf("request next level compaction: %w", err)
+		return fmt.Errorf("request next level compaction: %w", err)
 	}
 
 	if err := increaseHWM(ctx, tx, db.ID, maxTXID); err != nil {
-		return StoragePath{}, fmt.Errorf("increase hwm: %w", err)
+		return fmt.Errorf("increase hwm: %w", err)
 	}
 
-	logger.Debug("L0 pages compacted", slog.Duration("elapsed", time.Since(startTime)))
-
-	return outPath, nil
+	logger.Debug("L0 pages compacted", slog.Duration("elapsed", time.Since(now)))
+	return nil
 }
 
 // compactDBToLevel handles any compactions sourced from L1 or higher.

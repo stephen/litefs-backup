@@ -3,6 +3,7 @@ package store_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -329,14 +330,16 @@ func TestStore_WriteTx(t *testing.T) {
 		defer once.Do(func() { rr.Resume(nil) })
 
 		// Run compaction and ensure that we are not using the partial transaction.
-		path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", 1)
-		if err != nil {
-			t.Fatal(err)
-		} else if got, want := path.MaxTXID, lastCommittedPos.TXID; got != want {
-			t.Fatalf("TXID=%s, want %s", got, want)
-		} else if got, want := path.Metadata.PostApplyChecksum, lastCommittedPos.PostApplyChecksum; got != want {
-			t.Fatalf("PostApplyChecksum=%016x, want %016x", got, want)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", 1)
+			if err != nil {
+				t.Fatal(err)
+			} else if got, want := path.MaxTXID, lastCommittedPos.TXID; got != want {
+				t.Fatalf("TXID=%s, want %s", got, want)
+			} else if got, want := path.Metadata.PostApplyChecksum, lastCommittedPos.PostApplyChecksum; got != want {
+				t.Fatalf("PostApplyChecksum=%016x, want %016x", got, want)
+			}
+		})
 
 		// Resume write
 		once.Do(func() { rr.Resume(nil) })
@@ -346,14 +349,16 @@ func TestStore_WriteTx(t *testing.T) {
 		time.Sleep(time.Second)
 
 		// Compact again and ensure last txn is included.
-		path, err = s.CompactDBToLevel(context.Background(), nil, "bkt", "db", 1)
-		if err != nil {
-			t.Fatal(err)
-		} else if got, want := path.MaxTXID, b.Pos().TXID; got != want {
-			t.Fatalf("TXID=%s, want %s", got, want)
-		} else if got, want := path.Metadata.PostApplyChecksum, b.Pos().PostApplyChecksum; got != want {
-			t.Fatalf("PostApplyChecksum=%016x, want %016x", got, want)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", 1)
+			if err != nil {
+				t.Fatal(err)
+			} else if got, want := path.MaxTXID, b.Pos().TXID; got != want {
+				t.Fatalf("TXID=%s, want %s", got, want)
+			} else if got, want := path.Metadata.PostApplyChecksum, b.Pos().PostApplyChecksum; got != want {
+				t.Fatalf("PostApplyChecksum=%016x, want %016x", got, want)
+			}
+		})
 	})
 
 	t.Run("ErrPosMismatch", func(t *testing.T) {
@@ -690,9 +695,11 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "cl", "db", 1); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
 			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 7, MaxTXID: 7, PreApplyChecksum: 0xad2dffe333333333},
@@ -704,9 +711,11 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "cl", "db", 1); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		// The snapshot should be pulled from remote storage since TXID 6 was compacted away to L1.
 		var buf bytes.Buffer
@@ -756,9 +765,11 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "cl", "db", 1); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		if _, err := s.WriteTx(context.Background(), "cl", "db", ltxSpecReader(t, &ltx.FileSpec{
 			Header:  ltx.Header{Version: 1, PageSize: 512, Commit: 1, MinTXID: 7, MaxTXID: 7, PreApplyChecksum: ltx.ChecksumFlag},
@@ -770,9 +781,11 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "cl", "db", 1); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		// The snapshot should be pulled from remote storage since TXID 6 was compacted away to L1.
 		var buf bytes.Buffer
@@ -841,9 +854,11 @@ func TestStore_WriteSnapshotTo(t *testing.T) {
 
 		// Wait for retention & compact.
 		time.Sleep(s.Levels[0].Retention)
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "cl", "db", 1); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "cl", "db", 1); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		// The compacted file in remote storage has a range of [1-6] so 5 is not found.
 		var buf bytes.Buffer
@@ -1461,33 +1476,38 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Logf("compacted to: %s", path)
+			s.WithTestTx(t, func(tx *sql.Tx) {
+				path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lvl.Level)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Logf("compacted to: %s", path)
+			})
 		}
 
 		// Compact to snapshot.
-		path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
-		if err != nil {
-			t.Fatal(err)
-		} else if got, want := path, (store.StoragePath{
-			Cluster:  "bkt",
-			Database: "db",
-			Level:    9,
-			MinTXID:  1,
-			MaxTXID:  1,
-			Metadata: store.StorageMetadata{
-				PageSize:          512,
-				Commit:            1,
-				Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
-				PreApplyChecksum:  0,
-				PostApplyChecksum: 0xeb1a999231044ddd,
-			},
-		}); got != want {
-			t.Fatalf("path=%#v, want %#v", got, want)
-		}
+
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot)
+			if err != nil {
+				t.Fatal(err)
+			} else if got, want := path, (store.StoragePath{
+				Cluster:  "bkt",
+				Database: "db",
+				Level:    9,
+				MinTXID:  1,
+				MaxTXID:  1,
+				Metadata: store.StorageMetadata{
+					PageSize:          512,
+					Commit:            1,
+					Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+					PreApplyChecksum:  0,
+					PostApplyChecksum: 0xeb1a999231044ddd,
+				},
+			}); got != want {
+				t.Fatalf("path=%#v, want %#v", got, want)
+			}
+		})
 
 		// Verify that HWM is updated.
 		if db, err := s.FindDBByName(context.Background(), "bkt", "db"); err != nil {
@@ -1508,60 +1528,66 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			path, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Logf("compacted to: %s", path)
+			s.WithTestTx(t, func(tx *sql.Tx) {
+				path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lvl.Level)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Logf("compacted to: %s", path)
+			})
 		}
 
 		// Compact to snapshot again.
-		path, err = s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
-		if err != nil {
-			t.Fatal(err)
-		} else if got, want := path, (store.StoragePath{
-			Cluster:  "bkt",
-			Database: "db",
-			Level:    9,
-			MinTXID:  1,
-			MaxTXID:  2,
-			Metadata: store.StorageMetadata{
-				PageSize:          512,
-				Commit:            2,
-				Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
-				PreApplyChecksum:  0,
-				PostApplyChecksum: 0xad2dffe333333333,
-			},
-		}); got != want {
-			t.Fatalf("path=%#v, want %#v", got, want)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			path, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot)
+			if err != nil {
+				t.Fatal(err)
+			} else if got, want := path, (store.StoragePath{
+				Cluster:  "bkt",
+				Database: "db",
+				Level:    9,
+				MinTXID:  1,
+				MaxTXID:  2,
+				Metadata: store.StorageMetadata{
+					PageSize:          512,
+					Commit:            2,
+					Timestamp:         time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+					PreApplyChecksum:  0,
+					PostApplyChecksum: 0xad2dffe333333333,
+				},
+			}); got != want {
+				t.Fatalf("path=%#v, want %#v", got, want)
+			}
 
-		// Ensure compacted file exists and is correct.
-		var other ltx.FileSpec
-		if f, err := s.RemoteClient.OpenFile(context.Background(), path); err != nil {
-			t.Fatal(err)
-		} else if _, err := other.ReadFrom(f); err != nil {
-			t.Fatal(err)
-		} else if err := f.Close(); err != nil {
-			t.Fatal(err)
-		}
+			// Ensure compacted file exists and is correct.
+			var other ltx.FileSpec
+			if f, err := s.RemoteClient.OpenFile(context.Background(), path); err != nil {
+				t.Fatal(err)
+			} else if _, err := other.ReadFrom(f); err != nil {
+				t.Fatal(err)
+			} else if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
 
-		compareFileSpec(t, &other, &ltx.FileSpec{
-			Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 2},
-			Pages: []ltx.PageSpec{
-				{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
-				{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
-			},
-			Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xb140bf35427d1cff},
+			compareFileSpec(t, &other, &ltx.FileSpec{
+				Header: ltx.Header{Version: 1, Flags: ltx.HeaderFlagCompressLZ4, PageSize: 512, Commit: 2, MinTXID: 1, MaxTXID: 2},
+				Pages: []ltx.PageSpec{
+					{Header: ltx.PageHeader{Pgno: 1}, Data: bytes.Repeat([]byte("1"), 512)},
+					{Header: ltx.PageHeader{Pgno: 2}, Data: bytes.Repeat([]byte("2"), 512)},
+				},
+				Trailer: ltx.Trailer{PostApplyChecksum: 0xad2dffe333333333, FileChecksum: 0xb140bf35427d1cff},
+			})
 		})
 	})
 
 	t.Run("ErrNoCompaction/NoData", func(t *testing.T) {
 		s := newOpenStore(t, t.TempDir())
-		_, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot)
-		if lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			_, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot)
+			if lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+				t.Fatal(err)
+			}
+		})
 	})
 
 	t.Run("ErrNoCompaction/NoNewData", func(t *testing.T) {
@@ -1580,27 +1606,35 @@ func TestStore_CompactToSnapshot(t *testing.T) {
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); err != nil {
-				t.Fatal(err)
-			}
+			s.WithTestTx(t, func(tx *sql.Tx) {
+				if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lvl.Level); err != nil {
+					t.Fatal(err)
+				}
+			})
 		}
 
 		// Compact to snapshot.
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
-			t.Fatal(err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
+				t.Fatal(err)
+			}
+		})
 
 		// Compact up each of the levels
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
-				t.Fatal(err)
-			}
+			s.WithTestTx(t, func(tx *sql.Tx) {
+				if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lvl.Level); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+					t.Fatal(err)
+				}
+			})
 		}
 
 		// Compacting again without new data should return a marker error.
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot); lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	})
 }
 
@@ -1653,13 +1687,17 @@ func TestStore_DeleteCluster(t *testing.T) {
 
 		// Compact to all levels & snapshot.
 		for _, lvl := range s.Levels[1:] {
-			if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lvl.Level); err != nil {
+			s.WithTestTx(t, func(tx *sql.Tx) {
+				if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lvl.Level); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+		s.WithTestTx(t, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
 				t.Fatal(err)
 			}
-		}
-		if _, err := s.CompactDBToLevel(context.Background(), nil, "bkt", "db", lfsb.CompactionLevelSnapshot); err != nil {
-			t.Fatal(err)
-		}
+		})
 
 		// Delete cluster.
 		if err := s.DeleteCluster(context.Background(), "bkt"); err != nil {

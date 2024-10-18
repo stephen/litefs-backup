@@ -30,7 +30,7 @@ func (s *Store) DeleteCluster(ctx context.Context, cluster string) error {
 	return nil
 }
 
-// DropDB hard deletes the database from the shard database and remote storage.
+// DropDB hard deletes the database from the sqlite database and remote storage.
 func (s *Store) DropDB(ctx context.Context, cluster, database string) error {
 	for level := 1; level <= lfsb.CompactionLevelSnapshot; level++ {
 		paths, err := FindStoragePaths(ctx, s.RemoteClient, cluster, database, level, nil)

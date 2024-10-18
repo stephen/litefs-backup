@@ -19,7 +19,7 @@ import (
 	"github.com/superfly/ltx"
 )
 
-// newShard returns an instance of Shard with standard compaction levels.
+// newStore returns an instance of Store with standard compaction levels.
 func newStore(tb testing.TB, path string) *store.Store {
 	tb.Helper()
 	s := store.NewStore(&lfsb.Config{
@@ -126,8 +126,10 @@ func makeSQLiteDB(tb testing.TB, pageSize, rows int) []byte {
 func compactUpToLevel(tb testing.TB, s *store.Store, cluster, database string, level int) {
 	tb.Helper()
 	for lvl := 1; lvl <= level; lvl += 1 {
-		if _, err := s.CompactDBToLevel(context.Background(), nil, cluster, database, lvl); err != nil && lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
-			tb.Fatal(err)
-		}
+		s.WithTestTx(tb, func(tx *sql.Tx) {
+			if _, err := s.CompactDBToLevel(context.Background(), tx, cluster, database, lvl); err != nil && lfsb.ErrorCode(err) != lfsb.ENOCOMPACTION {
+				tb.Fatal(err)
+			}
+		})
 	}
 }

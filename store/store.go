@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
@@ -64,6 +65,23 @@ func NewStore(config *lfsb.Config) *Store {
 		Now: func() time.Time {
 			return time.Now()
 		},
+	}
+}
+
+// WithTestTx opens a tx against the store. This is an escape hatch for testing.
+func (s *Store) WithTestTx(t testing.TB, fn func(*sql.Tx)) {
+	t.Helper()
+
+	tx, err := sqliteutil.BeginImmediate(s.db)
+	if err != nil {
+		t.Fatalf("failed to open immediate tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	fn(tx)
+
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit tx: %v", err)
 	}
 }
 
