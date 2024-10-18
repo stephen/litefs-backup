@@ -1,7 +1,10 @@
 # 📦 litefs-backup (lfsb)
 
-A drop-in replacement for LiteFS Cloud, which was deprecated in [July 2024](https://community.fly.io/t/sunsetting-litefs-cloud/20829). Litefs-backup
-will create streaming backups of your LiteFS cluster to any s3-compatible storage provider, with 5 minute point-in-time restore granularity.
+A drop-in, self-hosted replacement for [LiteFS Cloud](https://fly.io/blog/litefs-cloud/), which was deprecated in [July 2024](https://community.fly.io/t/sunsetting-litefs-cloud/20829).
+
+Litefs-backup is a standalone backup process that streams backups of your LiteFS cluster to any
+s3-compatible storage provider, with 5 minute point-in-time restore granularity. It supports
+both static and dynamic LiteFS lease modes.
 
 This project is sponsored by [Tender](https://tender.run) - a private, productive personal finance tool.
 
