@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -219,21 +218,8 @@ func (s *Store) compactL0(ctx context.Context, tx *sql.Tx, cluster, database str
 	}
 
 	if retention > 0 {
-		ts := now.Add(-retention)
-		txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, ts)
-		if err != nil {
-			if !errors.Is(err, lfsb.ErrTxNotAvailable) {
-				return fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
-			} else {
-				// It's okay. We can't compact L0 because nothing is past the window yet.
-			}
-		} else if txn != nil && txn.MaxTXID <= maxTXID {
-			if err := deleteTxnsBeforeMaxTXID(ctx, tx, db.ID, maxTXID); err != nil {
-				return fmt.Errorf("delete txns before %s: %w", maxTXID, err)
-			}
-			if err := compactPagesBefore(ctx, tx, db.ID, maxTXID); err != nil {
-				return fmt.Errorf("compact pages before %s: %w", maxTXID, err)
-			}
+		if err := s.EnforceL0Retention(ctx, tx, db, maxTXID, now.Add(-retention)); err != nil {
+			return err
 		}
 	}
 

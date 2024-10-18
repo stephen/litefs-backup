@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -67,6 +69,29 @@ func (s *Store) DropDB(ctx context.Context, cluster, database string) error {
 	}
 
 	return tx.Commit()
+}
+
+func (s *Store) EnforceL0Retention(ctx context.Context, tx *sql.Tx, db *DB, maxTXID ltx.TXID, ts time.Time) error {
+	txn, err := findMaxTxnBeforeTimestamp(ctx, tx, db.ID, ts)
+	if err != nil {
+		if !errors.Is(err, lfsb.ErrTxNotAvailable) {
+			return fmt.Errorf("find max txn before timestamp %v: %w", ts.Format(time.RFC3339), err)
+		} else {
+			// It's okay. We can't compact L0 because nothing is past the window yet.
+			return nil
+		}
+	} else if txn.MaxTXID <= maxTXID {
+		if err := deleteTxnsBeforeMaxTXID(ctx, tx, db.ID, maxTXID); err != nil {
+			return fmt.Errorf("delete txns before %s: %w", maxTXID, err)
+		}
+		if err := compactPagesBefore(ctx, tx, db.ID, maxTXID); err != nil {
+			return fmt.Errorf("compact pages before %s: %w", maxTXID, err)
+		}
+	}
+
+	// It's okay, there is a record with an older timestamp, but not before
+	// what we've retained in remote storage.
+	return nil
 }
 
 // EnforceRemoteRetention removes all files before a given TXID that are past the retention period.
